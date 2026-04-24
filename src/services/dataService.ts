@@ -5,6 +5,13 @@
 
 import { CampaignStage } from '../constants';
 import { Campaign, CampaignInfluencer, Blocker, Task } from '../types';
+import { SuggestedInfluencer } from './geminiService';
+
+export interface BookmarkedInfluencer extends SuggestedInfluencer {
+  bookmarkedAt: number;
+  notes?: string;
+  tags?: string[];
+}
 
 // Mock Data Initial State
 const INITIAL_CAMPAIGNS_DATA: Campaign[] = [
@@ -192,6 +199,8 @@ const INITIAL_TASKS_DATA: Task[] = [
   { id: 'TSK-104', title: 'Escalation: Missing recovery Jeddah', description: 'Contact restaurant manager', ownerId: 'Sarah A.', dueDate: new Date('2026-04-18').getTime(), campaignId: 'Hungerstation', completed: false, priority: 'High', createdAt: Date.now(), updatedAt: Date.now(), createdBy: 'system' },
 ];
 
+const INITIAL_BOOKMARKS_DATA: BookmarkedInfluencer[] = [];
+
 const loadFromStorage = (key: string, initialData: any) => {
   try {
     const item = localStorage.getItem(key);
@@ -213,6 +222,7 @@ export let CAMPAIGNS_DATA: Campaign[] = loadFromStorage('GC_CAMPAIGNS', INITIAL_
 export let INFLUENCERS_DATA: CampaignInfluencer[] = loadFromStorage('GC_INFLUENCERS', INITIAL_INFLUENCERS_DATA);
 export let BLOCKERS_DATA: Blocker[] = loadFromStorage('GC_BLOCKERS', INITIAL_BLOCKERS_DATA);
 export let TASKS_DATA: Task[] = loadFromStorage('GC_TASKS', INITIAL_TASKS_DATA);
+export let BOOKMARKS_DATA: BookmarkedInfluencer[] = loadFromStorage('GC_BOOKMARKS', INITIAL_BOOKMARKS_DATA);
 
 // Service Methods
 export const dataService = {
@@ -269,5 +279,33 @@ export const dataService = {
     INFLUENCERS_DATA = INFLUENCERS_DATA.map(inf => ids.includes(inf.id) ? { ...inf, status, updatedAt: Date.now() } : inf);
     saveToStorage('GC_INFLUENCERS', INFLUENCERS_DATA);
     return [...INFLUENCERS_DATA];
+  },
+  // Bookmark methods
+  getBookmarks: () => [...BOOKMARKS_DATA],
+  addBookmark: (influencer: SuggestedInfluencer, notes?: string, tags?: string[]) => {
+    const bookmark: BookmarkedInfluencer = {
+      ...influencer,
+      bookmarkedAt: Date.now(),
+      notes,
+      tags
+    };
+    BOOKMARKS_DATA = [bookmark, ...BOOKMARKS_DATA];
+    saveToStorage('GC_BOOKMARKS', BOOKMARKS_DATA);
+    return [...BOOKMARKS_DATA];
+  },
+  removeBookmark: (handle: string) => {
+    BOOKMARKS_DATA = BOOKMARKS_DATA.filter(b => b.handle !== handle);
+    saveToStorage('GC_BOOKMARKS', BOOKMARKS_DATA);
+    return [...BOOKMARKS_DATA];
+  },
+  isBookmarked: (handle: string) => {
+    return BOOKMARKS_DATA.some(b => b.handle === handle);
+  },
+  updateBookmark: (handle: string, updates: Partial<Pick<BookmarkedInfluencer, 'notes' | 'tags'>>) => {
+    BOOKMARKS_DATA = BOOKMARKS_DATA.map(b => 
+      b.handle === handle ? { ...b, ...updates } : b
+    );
+    saveToStorage('GC_BOOKMARKS', BOOKMARKS_DATA);
+    return [...BOOKMARKS_DATA];
   }
 };
