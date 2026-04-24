@@ -4,6 +4,7 @@ import { onAuthStateChanged, User, signInWithPopup, GoogleAuthProvider, signOut 
 import { auth, db } from './lib/firebase';
 import { doc, getDoc, setDoc } from 'firebase/firestore';
 import { Toaster } from './components/ui/sonner';
+import { SpeedInsights } from '@vercel/speed-insights/react';
 
 // Pages (to be created)
 import Dashboard from './pages/Dashboard';
@@ -152,6 +153,7 @@ export default function App() {
         </Routes>
       </Router>
       <Toaster />
+      <SpeedInsights />
     </AuthContext.Provider>
   );
 }
