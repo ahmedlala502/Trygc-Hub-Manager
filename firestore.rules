@@ -1,0 +1,174 @@
+rules_version = '2';
+service cloud.firestore {
+  match /databases/{database}/documents {
+
+    // ===============================================================
+    // Assumed Data Model
+    // ===============================================================
+    //
+    // Collection: companies
+    // Fields: name (string), type (string: Client|Brand), country (string), city (string), notes (string)
+    //
+    // Collection: contacts
+    // Fields: name (string), role (string), email (string), phone (string), platformHandle (string), 
+    //         gender (string), niche (string), followerRange (string), country (string), city (string)
+    //
+    // Collection: campaigns
+    // Fields: name (string), clientId (string), brandId (string), country (string), city (string),
+    //         objective (string), platforms (list), type (string), budget (number), budgetType (string),
+    //         targetInfluencerCount (number), targetPostingCoverageCount (number), startDate (timestamp),
+    //         endDate (timestamp), deliverables (string), tags (list), mentions (list), links (list),
+    //         visitRequired (bool), productDetails (string), approvalFlow (string), reportingCadence (string),
+    //         restrictions (string), internalOwners (list), clientOwners (list), influencerCriteria (string),
+    //         currentOwner (string), nextAction (string), nextActionDeadline (timestamp), slaStatus (string),
+    //         blockerStatus (bool), stage (int), closureOutcome (string), recordHealth (string)
+    //
+    // Collection: campaigns/{campaignId}/influencers
+    // Fields: campaignId (string), influencerId (string), username (string), status (string), 
+    //         invitationWave (int), visitDate (timestamp), visitCompleted (bool), 
+    //         coverageReceived (bool), coverageLink (string), qaStatus (string)
+    //
+    // Collection: campaigns/{campaignId}/coverage
+    // Fields: campaignId (string), influencerId (string), link (string), 
+    //         qaStatus (string: Pending|Passed|Failed), isBriefCompliant (bool)
+    //
+    // Collection: campaigns/{campaignId}/blockers
+    // Fields: campaignId (string), issue (string), severity (string), status (string)
+    //
+    // Collection: campaigns/{campaignId}/audit
+    // Fields: campaignId (string), field (string), oldValue (string), newValue (string), 
+    //         changedBy (string), changedAt (timestamp)
+    //
+    // ===============================================================
+
+    // ===============================================================
+    // Helper Functions
+    // ===============================================================
+    
+    function isAuthenticated() {
+      return request.auth != null;
+    }
+
+    function isAdmin() {
+      return isAuthenticated() &&
+        (get(/databases/$(database)/documents/users/$(request.auth.uid)).data.role == 'admin' ||
+          (request.auth.token.email == "ahmedlalatoo2013@gmail.com" && request.auth.token.email_verified == true));
+    }
+
+    function isOwner(userId) {
+      return isAuthenticated() && request.auth.uid == userId;
+    }
+
+    function hasRequiredFields(fields) {
+      return request.resource.data.keys().hasAll(fields);
+    }
+
+    function hasOnlyAllowedFields(fields) {
+      return request.resource.data.keys().hasOnly(fields);
+    }
+
+    function isValidEmail(email) {
+      return email is string && email.matches("^[a-zA-Z0-9._%+-]+@[a-zA-Z0-9.-]+\\.[a-zA-Z]{2,}$");
+    }
+
+    function isValidUrl(url) {
+      return url is string && (url.matches("^https://.*") || url.matches("^http://.*"));
+    }
+
+    // ===============================================================
+    // Domain Validators
+    // ===============================================================
+
+    function isValidCompany(data) {
+      return data.name is string && data.name.size() > 0 && data.name.size() < 100 &&
+             data.type in ['Client', 'Brand'] &&
+             data.country is string && data.country.size() > 0;
+    }
+
+    function isValidCampaign(data) {
+      return data.name is string && data.name.size() > 0 && data.name.size() < 200 &&
+             data.stage is int && data.stage >= 1 && data.stage <= 18 &&
+             (data.budget == null || data.budget is number) &&
+             (data.platforms == null || data.platforms is list);
+    }
+
+    // ===============================================================
+    // Rules
+    // ===============================================================
+
+    match /users/{userId} {
+      allow read: if isAuthenticated();
+      allow create: if isOwner(userId) && 
+        hasOnlyAllowedFields(['name', 'email', 'role', 'photoURL']) &&
+        (request.resource.data.role in ['Viewer', 'admin']);
+      allow update: if isOwner(userId) && 
+        hasOnlyAllowedFields(['name', 'email', 'role', 'photoURL']) &&
+        (request.resource.data.role == resource.data.role || isAdmin());
+    }
+
+    match /companies/{companyId} {
+      allow read: if isAuthenticated();
+      allow write: if isAdmin();
+    }
+
+    match /contacts/{contactId} {
+      allow read: if isAuthenticated();
+      allow write: if isAdmin() || (isAuthenticated() && get(/databases/$(database)/documents/users/$(request.auth.uid)).data.role == 'Ops Lead');
+    }
+
+    match /campaigns/{campaignId} {
+      allow read: if isAuthenticated();
+      allow create: if isAuthenticated() && isValidCampaign(request.resource.data);
+      allow update: if isAuthenticated() && isValidCampaign(request.resource.data);
+      
+      match /influencers/{infId} {
+        allow read: if isAuthenticated();
+        allow write: if isAuthenticated();
+      }
+      
+      match /coverage/{covId} {
+        allow read: if isAuthenticated();
+        allow write: if isAuthenticated();
+      }
+      
+      match /blockers/{blockId} {
+        allow read: if isAuthenticated();
+        allow write: if isAuthenticated();
+      }
+      
+      match /audit/{auditId} {
+        allow read: if isAuthenticated();
+        allow create: if isAuthenticated();
+      }
+    }
+
+    // Allow collectionGroup queries for subcollections
+    match /{path=**}/influencers/{infId} {
+      allow read: if isAuthenticated();
+    }
+    match /{path=**}/coverage/{covId} {
+      allow read: if isAuthenticated();
+    }
+    match /{path=**}/blockers/{blockId} {
+      allow read: if isAuthenticated();
+    }
+    match /{path=**}/audit/{auditId} {
+      allow read: if isAuthenticated();
+    }
+
+    match /tasks/{taskId} {
+      allow read: if isAuthenticated();
+      allow write: if isAuthenticated();
+    }
+
+    match /templates/{templateId} {
+      allow read: if isAuthenticated();
+      allow write: if isAdmin() || (isAuthenticated() && get(/databases/$(database)/documents/users/$(request.auth.uid)).data.role == 'Ops Lead');
+    }
+
+    // Default deny
+    match /{document=**} {
+      allow read, write: if false;
+    }
+  }
+}

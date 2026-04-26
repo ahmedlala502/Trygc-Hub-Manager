@@ -1,0 +1,139 @@
+{
+  "entities": {
+    "Company": {
+      "title": "Company",
+      "description": "Client or brand entity",
+      "type": "object",
+      "properties": {
+        "name": { "type": "string", "description": "Client or brand name" },
+        "type": { "type": "string", "enum": ["Client", "Brand"], "description": "Type of company" },
+        "country": { "type": "string" },
+        "city": { "type": "string" },
+        "notes": { "type": "string" }
+      },
+      "required": ["name", "type", "country"]
+    },
+    "Contact": {
+      "title": "Contact",
+      "description": "Influencer or client contact",
+      "type": "object",
+      "properties": {
+        "name": { "type": "string" },
+        "role": { "type": "string" },
+        "email": { "type": "string", "format": "email" },
+        "phone": { "type": "string" },
+        "platformHandle": { "type": "string" },
+        "gender": { "type": "string", "enum": ["Male", "Female", "Other"] },
+        "niche": { "type": "string" },
+        "followerRange": { "type": "string" },
+        "country": { "type": "string" },
+        "city": { "type": "string" }
+      },
+      "required": ["name", "email"]
+    },
+    "Campaign": {
+      "title": "Campaign",
+      "description": "Main campaign entity managing the workflow",
+      "type": "object",
+      "properties": {
+        "name": { "type": "string" },
+        "clientId": { "type": "string", "description": "Reference to Company" },
+        "brandId": { "type": "string", "description": "Reference to Company" },
+        "country": { "type": "string" },
+        "city": { "type": "string" },
+        "objective": { "type": "string" },
+        "platforms": { "type": "array", "items": { "type": "string" } },
+        "type": { "type": "string" },
+        "budget": { "type": "number" },
+        "budgetType": { "type": "string" },
+        "targetInfluencerCount": { "type": "number" },
+        "targetPostingCoverageCount": { "type": "number" },
+        "startDate": { "type": "string", "format": "date-time" },
+        "endDate": { "type": "string", "format": "date-time" },
+        "deliverables": { "type": "string" },
+        "tags": { "type": "array", "items": { "type": "string" } },
+        "mentions": { "type": "array", "items": { "type": "string" } },
+        "links": { "type": "array", "items": { "type": "string" } },
+        "visitRequired": { "type": "boolean" },
+        "productDetails": { "type": "string" },
+        "approvalFlow": { "type": "string" },
+        "reportingCadence": { "type": "string" },
+        "restrictions": { "type": "string" },
+        "internalOwners": { "type": "array", "items": { "type": "string" } },
+        "clientOwners": { "type": "array", "items": { "type": "string" } },
+        "influencerCriteria": { "type": "string" },
+        "currentOwner": { "type": "string" },
+        "nextAction": { "type": "string" },
+        "nextActionDeadline": { "type": "string", "format": "date-time" },
+        "slaStatus": { "type": "string", "enum": ["On Time", "At Risk", "Breached"] },
+        "blockerStatus": { "type": "boolean" },
+        "stage": { "type": "integer", "description": "1-18 workflow stages" },
+        "closureOutcome": { "type": "string", "enum": ["Closed – Completed", "Closed – Partial", "On Hold", "Cancelled"] },
+        "recordHealth": { "type": "string" }
+      },
+      "required": ["name", "clientId", "stage"]
+    },
+    "CampaignInfluencer": {
+      "title": "Campaign Influencer",
+      "description": "Relationship between campaign and influencer",
+      "type": "object",
+      "properties": {
+        "campaignId": { "type": "string" },
+        "influencerId": { "type": "string" },
+        "username": { "type": "string" },
+        "status": { "type": "string" },
+        "invitationWave": { "type": "integer" },
+        "visitDate": { "type": "string", "format": "date-time" },
+        "visitCompleted": { "type": "boolean" },
+        "coverageReceived": { "type": "boolean" },
+        "coverageLink": { "type": "string" },
+        "qaStatus": { "type": "string" }
+      }
+    },
+    "PostingCoverage": {
+      "title": "Posting Coverage",
+      "description": "Actual posting records",
+      "type": "object",
+      "properties": {
+        "campaignId": { "type": "string" },
+        "influencerId": { "type": "string" },
+        "link": { "type": "string" },
+        "qaStatus": { "type": "string", "enum": ["Pending", "Passed", "Failed"] },
+        "isBriefCompliant": { "type": "boolean" }
+      }
+    },
+    "Blocker": {
+      "title": "Blocker",
+      "description": "Escalation and blocker tracking",
+      "type": "object",
+      "properties": {
+        "campaignId": { "type": "string" },
+        "issue": { "type": "string" },
+        "severity": { "type": "string", "enum": ["Low", "Medium", "High", "Critical"] },
+        "status": { "type": "string", "enum": ["Open", "Resolved"] }
+      }
+    },
+    "AuditLog": {
+      "title": "Audit Log",
+      "description": "Change tracking",
+      "type": "object",
+      "properties": {
+        "campaignId": { "type": "string" },
+        "field": { "type": "string" },
+        "oldValue": { "type": "string" },
+        "newValue": { "type": "string" },
+        "changedBy": { "type": "string" },
+        "changedAt": { "type": "string", "format": "date-time" }
+      }
+    }
+  },
+  "firestore": {
+    "/companies": { "schema": "Company", "description": "Client and brand directory" },
+    "/contacts": { "schema": "Contact", "description": "Influencer and contact directory" },
+    "/campaigns": { "schema": "Campaign", "description": "Main campaign records" },
+    "/campaigns/{campaignId}/influencers": { "schema": "CampaignInfluencer", "description": "Influencers assigned to a campaign" },
+    "/campaigns/{campaignId}/coverage": { "schema": "PostingCoverage", "description": "Posting coverage for a campaign" },
+    "/campaigns/{campaignId}/blockers": { "schema": "Blocker", "description": "Blockers for a campaign" },
+    "/campaigns/{campaignId}/audit": { "schema": "AuditLog", "description": "Audit trail for a campaign" }
+  }
+}
