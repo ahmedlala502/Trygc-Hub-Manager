@@ -70,18 +70,35 @@ const BUILTIN_PROVIDERS = [
 
 function isAdminUser(role: string): boolean {
   const r = role.toLowerCase();
-  return r.includes('lead') || r.includes('admin') || r.includes('manager') || r.includes('operations');
+  return r.includes('admin') || r.includes('manager') || r.includes('lead') || r.includes('head') || r.includes('director') || r.includes('general');
 }
 
 const PRESET_ROLES = [
-  'Operations Lead',
-  'Community Lead',
-  'Shift Lead',
-  'Creator Coverage Lead',
-  'Regional Manager',
+  // ── Admin / Management ──────────────────────────────
   'Admin',
+  'Super Admin',
+  'Regional Manager',
+  'Country Manager',
+  'Department Head',
+  'General Manager',
+  // ── Operations ──────────────────────────────────────
+  'Operations Lead',
+  'Operations Manager',
+  'Shift Lead',
+  'Senior Operations Agent',
+  'Operations Agent',
+  // ── Community ───────────────────────────────────────
+  'Community Lead',
+  'Community Manager',
+  'Creator Coverage Lead',
+  'Community Agent',
+  // ── Support & Reporting ─────────────────────────────
   'Analyst',
+  'Reporting Specialist',
   'Support Agent',
+  'QA Specialist',
+  // ── Custom ──────────────────────────────────────────
+  'Viewer',
 ];
 
 export default function Settings({ activeTab: controlledTab, setActiveTab: setControlledTab }: SettingsProps) {

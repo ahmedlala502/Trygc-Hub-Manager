@@ -12,7 +12,7 @@ export const COUNTRY_FLAGS: Record<string, string> = {
 
 export const INITIAL_USER: User = {
   name: 'Ahmed Essmat',
-  role: 'Regional Operations',
+  role: 'Admin',
   office: 'Cairo HQ',
   country: 'EG',
   email: 'ahmed@example.com'
@@ -31,7 +31,7 @@ export const OFFICES: Office[] = [
 ];
 
 export const INITIAL_MEMBERS: Member[] = [
-  { id: 'm1', name: 'Ahmed Essmat', team: 'Operations Team', office: 'Cairo HQ', country: 'EG', role: 'Operations Lead', tasksCompleted: 18, handoversOut: 7, onTime: 16 },
+  { id: 'm1', name: 'Ahmed Essmat', team: 'Operations Team', office: 'Cairo HQ', country: 'EG', role: 'Admin', tasksCompleted: 18, handoversOut: 7, onTime: 16 },
   { id: 'm2', name: 'Mona KSA', team: 'Community Team', office: 'Riyadh Office', country: 'KSA', role: 'Community Lead', tasksCompleted: 14, handoversOut: 4, onTime: 12 },
   { id: 'm3', name: 'Nour UAE', team: 'Operations Team', office: 'Dubai Office', country: 'UAE', role: 'Shift Lead', tasksCompleted: 11, handoversOut: 3, onTime: 10 },
   { id: 'm4', name: 'Fahad KW', team: 'Community Team', office: 'Kuwait Office', country: 'KW', role: 'Creator Coverage Lead', tasksCompleted: 9, handoversOut: 5, onTime: 7 },
