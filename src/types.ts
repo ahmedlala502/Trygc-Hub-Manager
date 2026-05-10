@@ -91,6 +91,14 @@ export interface User {
   office: string;
   country: string;
   email: string;
+  password?: string;
+  isSuperAdmin?: boolean;
+}
+
+export interface AuthState {
+  isAuthenticated: boolean;
+  isLocked: boolean;
+  lastActivity: number;
 }
 
 export interface AppState {

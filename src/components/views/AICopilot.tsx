@@ -30,40 +30,45 @@ async function callCloud(provider: string, model: string, endpoint: string, hist
 
   const msgs = history.map(m => ({ role: m.role === 'assistant' ? (provider === 'gemini' ? 'model' : 'assistant') : 'user', content: m.content }));
   const controller = new AbortController();
-  setTimeout(() => controller.abort(), 12000);
+  const timeout = setTimeout(() => controller.abort(), 20000);
 
   const post = (url: string, body: unknown, headers: Record<string, string> = {}) =>
     fetch(url, { method: 'POST', headers: { 'Content-Type': 'application/json', ...headers }, body: JSON.stringify(body), signal: controller.signal });
 
-  if (provider === 'gemini') {
-    const res = await post(
-      `https://generativelanguage.googleapis.com/v1beta/models/${model || 'gemini-1.5-flash'}:generateContent?key=${key}`,
-      { systemInstruction: { parts: [{ text: sys }] }, contents: msgs.map(m => ({ role: m.role, parts: [{ text: m.content }] })) }
-    );
-    if (!res.ok) { const e = await res.json().catch(() => ({})); throw new Error((e as any)?.error?.message || `Gemini ${res.status}`); }
-    return (await res.json())?.candidates?.[0]?.content?.parts?.[0]?.text || 'No response.';
+  try {
+    if (provider === 'gemini') {
+      const res = await post(
+        `https://generativelanguage.googleapis.com/v1beta/models/${model || 'gemini-1.5-flash'}:generateContent`,
+        { systemInstruction: { parts: [{ text: sys }] }, contents: msgs.map(m => ({ role: m.role, parts: [{ text: m.content }] })) },
+        { 'x-goog-api-key': key }
+      );
+      if (!res.ok) { const e = await res.json().catch(() => ({})); throw new Error((e as any)?.error?.message || `Gemini ${res.status}`); }
+      return (await res.json())?.candidates?.[0]?.content?.parts?.[0]?.text || 'No response.';
+    }
+    if (provider === 'anthropic') {
+      const res = await post(endpoint || 'https://api.anthropic.com/v1/messages',
+        { model: model || 'claude-3-5-haiku-20241022', max_tokens: 1200, system: sys, messages: msgs },
+        { 'x-api-key': key, 'anthropic-version': '2023-06-01', 'anthropic-dangerous-direct-browser-access': 'true' }
+      );
+      if (!res.ok) { const e = await res.json().catch(() => ({})); throw new Error((e as any)?.error?.message || `Anthropic ${res.status}`); }
+      return (await res.json())?.content?.[0]?.text || 'No response.';
+    }
+    if (provider === 'local') {
+      const base = endpoint || 'http://localhost:11434';
+      const res = await post((base.endsWith('/') ? base : base + '/') + 'api/chat',
+        { model: model || 'llama3', messages: [{ role: 'system', content: sys }, ...msgs], stream: false }
+      );
+      if (!res.ok) throw new Error(`Ollama ${res.status} — is the server running?`);
+      const d = await res.json(); return d?.message?.content || 'No response.';
+    }
+    // openai / groq / alibaba / custom
+    const url = endpoint || (provider === 'groq' ? 'https://api.groq.com/openai/v1/chat/completions' : provider === 'alibaba' ? 'https://dashscope.aliyuncs.com/compatible-mode/v1/chat/completions' : 'https://api.openai.com/v1/chat/completions');
+    const res = await post(url, { model: model || 'gpt-4o', messages: [{ role: 'system', content: sys }, ...msgs], max_tokens: 1200 }, { Authorization: `Bearer ${key}` });
+    if (!res.ok) { const e = await res.json().catch(() => ({})); throw new Error((e as any)?.error?.message || `${provider} ${res.status}`); }
+    return (await res.json())?.choices?.[0]?.message?.content || 'No response.';
+  } finally {
+    clearTimeout(timeout);
   }
-  if (provider === 'anthropic') {
-    const res = await post(endpoint || 'https://api.anthropic.com/v1/messages',
-      { model: model || 'claude-3-5-haiku-20241022', max_tokens: 1200, system: sys, messages: msgs },
-      { 'x-api-key': key, 'anthropic-version': '2023-06-01', 'anthropic-dangerous-direct-browser-access': 'true' }
-    );
-    if (!res.ok) { const e = await res.json().catch(() => ({})); throw new Error((e as any)?.error?.message || `Anthropic ${res.status}`); }
-    return (await res.json())?.content?.[0]?.text || 'No response.';
-  }
-  if (provider === 'local') {
-    const base = endpoint || 'http://localhost:11434';
-    const res = await post((base.endsWith('/') ? base : base + '/') + 'api/chat',
-      { model: model || 'llama3', messages: [{ role: 'system', content: sys }, ...msgs], stream: false }
-    );
-    if (!res.ok) throw new Error(`Ollama ${res.status} — is the server running?`);
-    const d = await res.json(); return d?.message?.content || 'No response.';
-  }
-  // openai / groq / alibaba / custom
-  const url = endpoint || (provider === 'groq' ? 'https://api.groq.com/openai/v1/chat/completions' : provider === 'alibaba' ? 'https://dashscope.aliyuncs.com/compatible-mode/v1/chat/completions' : 'https://api.openai.com/v1/chat/completions');
-  const res = await post(url, { model: model || 'gpt-4o', messages: [{ role: 'system', content: sys }, ...msgs], max_tokens: 1200 }, { Authorization: `Bearer ${key}` });
-  if (!res.ok) { const e = await res.json().catch(() => ({})); throw new Error((e as any)?.error?.message || `${provider} ${res.status}`); }
-  return (await res.json())?.choices?.[0]?.message?.content || 'No response.';
 }
 
 // ── local offline responses ───────────────────────────────────────────────────

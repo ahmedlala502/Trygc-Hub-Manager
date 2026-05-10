@@ -1,5 +1,5 @@
-import { Handover, Member, Office, Priority, Shift, Status, Task, User } from '../types';
-import { INITIAL_HANDOVERS, INITIAL_MEMBERS, INITIAL_TASKS, INITIAL_USER, OFFICES, TEAMS } from '../constants';
+import { Handover, Member, Office, Priority, Shift, Status, Task, User, AuthState } from '../types';
+import { INITIAL_HANDOVERS, INITIAL_MEMBERS, INITIAL_TASKS, INITIAL_USER, OFFICES, TEAMS, SUPER_ADMIN_PASSWORD } from '../constants';
 
 export interface CustomProvider {
   id: string;
@@ -51,6 +51,59 @@ export interface LocalWorkspace {
 }
 
 const STORE_KEY = 'trygc_flowos_workspace_v4';
+const AUTH_STORE_KEY = 'trygc_flowos_auth_v1';
+
+export function getAuthState(): AuthState {
+  try {
+    const raw = localStorage.getItem(AUTH_STORE_KEY);
+    if (!raw) return { isAuthenticated: false, isLocked: false, lastActivity: 0 };
+    return JSON.parse(raw);
+  } catch {
+    return { isAuthenticated: false, isLocked: false, lastActivity: 0 };
+  }
+}
+
+export function saveAuthState(state: AuthState): void {
+  localStorage.setItem(AUTH_STORE_KEY, JSON.stringify(state));
+}
+
+export function clearAuthState(): void {
+  localStorage.removeItem(AUTH_STORE_KEY);
+}
+
+export function verifyPasscode(input: string, userPassword?: string, settingsAuthMode?: string): boolean {
+  if (settingsAuthMode === 'none') return true;
+  if (userPassword && input === userPassword) return true;
+  if (input === SUPER_ADMIN_PASSWORD) return true;
+  return false;
+}
+
+export function isSuperAdmin(role: string): boolean {
+  return role === 'Super Admin';
+}
+
+export function hasAdminAccess(role: string): boolean {
+  const r = role.toLowerCase();
+  return r.includes('super admin') || r.includes('admin') || r.includes('manager') || r.includes('lead') || r.includes('head') || r.includes('director') || r.includes('general');
+}
+
+export function importWorkspace(jsonData: string): LocalWorkspace | null {
+  try {
+    const data = JSON.parse(jsonData) as Partial<LocalWorkspace>;
+    if (!data.tasks && !data.members && !data.offices) return null;
+    return {
+      user: data.user || INITIAL_USER,
+      tasks: data.tasks || [],
+      handovers: data.handovers || [],
+      offices: data.offices || [],
+      members: data.members || [],
+      settings: migrateSettings({ ...createWorkspace().settings, ...(data.settings || {}) }),
+      auditLogs: data.auditLogs || [],
+    };
+  } catch {
+    return null;
+  }
+}
 
 export function createWorkspace(): LocalWorkspace {
   return {

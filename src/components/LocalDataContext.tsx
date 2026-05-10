@@ -1,10 +1,16 @@
-import React, { createContext, useContext, useMemo, useState } from 'react';
-import { Handover, Member, Office, Shift, Task } from '../types';
-import { AuditEvent, createId, LocalWorkspace, loadWorkspace, normalizeTask, resetWorkspace, saveWorkspace, WorkspaceSettings } from '../lib/localStore';
+import React, { createContext, useContext, useMemo, useState, useCallback } from 'react';
+import { AuthState, Handover, Member, Office, Shift, Task } from '../types';
+import { AuditEvent, createId, getAuthState, saveAuthState, clearAuthState, LocalWorkspace, loadWorkspace, normalizeTask, resetWorkspace, saveWorkspace, verifyPasscode, WorkspaceSettings, importWorkspace } from '../lib/localStore';
 
 interface LocalDataContextType extends LocalWorkspace {
   loading: boolean;
   isReady: boolean;
+  auth: AuthState;
+  login: (password: string) => Promise<boolean>;
+  logout: () => void;
+  lock: () => void;
+  isSuperAdmin: boolean;
+  hasAdminAccess: boolean;
   addTask: (task: Partial<Task>) => Promise<void>;
   updateTask: (id: string, patch: Partial<Task>) => Promise<void>;
   deleteTasks: (ids: string[]) => Promise<void>;
@@ -19,6 +25,7 @@ interface LocalDataContextType extends LocalWorkspace {
   updateSettings: (settings: WorkspaceSettings) => Promise<void>;
   updateUser: (patch: Partial<LocalWorkspace['user']>) => Promise<void>;
   exportWorkspace: () => LocalWorkspace;
+  importData: (json: string) => boolean;
   resetData: () => Promise<void>;
   logAction: (action: string, details?: unknown) => Promise<void>;
 }
@@ -27,6 +34,7 @@ const LocalDataContext = createContext<LocalDataContextType | undefined>(undefin
 
 export function LocalDataProvider({ children }: { children: React.ReactNode }) {
   const [workspace, setWorkspace] = useState<LocalWorkspace>(() => loadWorkspace());
+  const [auth, setAuth] = useState<AuthState>(() => getAuthState());
 
   const commit = (updater: (current: LocalWorkspace) => LocalWorkspace) => {
     setWorkspace(current => {
@@ -46,10 +54,38 @@ export function LocalDataProvider({ children }: { children: React.ReactNode }) {
     return { ...current, auditLogs: [event, ...current.auditLogs].slice(0, 100) };
   };
 
+  const login = useCallback(async (password: string): Promise<boolean> => {
+    const ok = verifyPasscode(password, workspace.user.password, workspace.settings.authMode);
+    if (ok) {
+      const state: AuthState = { isAuthenticated: true, isLocked: false, lastActivity: Date.now() };
+      setAuth(state);
+      saveAuthState(state);
+      return true;
+    }
+    return false;
+  }, [workspace.user.password, workspace.settings.authMode]);
+
+  const logout = useCallback(() => {
+    setAuth({ isAuthenticated: false, isLocked: false, lastActivity: 0 });
+    clearAuthState();
+  }, []);
+
+  const lock = useCallback(() => {
+    const state: AuthState = { ...auth, isLocked: true };
+    setAuth(state);
+    saveAuthState(state);
+  }, [auth]);
+
   const value = useMemo<LocalDataContextType>(() => ({
     ...workspace,
+    auth,
     loading: false,
     isReady: true,
+    login,
+    logout,
+    lock,
+    isSuperAdmin: workspace.user.isSuperAdmin === true || workspace.user.role === 'Super Admin',
+    hasAdminAccess: (workspace.user.isSuperAdmin === true || ['super admin', 'admin', 'manager', 'lead', 'head', 'director', 'general'].some(r => workspace.user.role.toLowerCase().includes(r))),
     addTask: async task => commit(current => appendAudit({
       ...current,
       tasks: [normalizeTask(task, current.user), ...current.tasks],
@@ -125,9 +161,20 @@ export function LocalDataProvider({ children }: { children: React.ReactNode }) {
     updateSettings: async settings => commit(current => appendAudit({ ...current, settings }, 'SETTINGS_UPDATE', {})),
     updateUser: async patch => commit(current => appendAudit({ ...current, user: { ...current.user, ...patch } }, 'PROFILE_UPDATE', patch)),
     exportWorkspace: () => workspace,
-    resetData: async () => setWorkspace(resetWorkspace()),
+    importData: (json: string) => {
+      const imported = importWorkspace(json);
+      if (!imported) return false;
+      setWorkspace(imported);
+      saveWorkspace(imported);
+      return true;
+    },
+    resetData: async () => {
+      clearAuthState();
+      setWorkspace(resetWorkspace());
+      setAuth({ isAuthenticated: false, isLocked: false, lastActivity: 0 });
+    },
     logAction: async (action, details) => commit(current => appendAudit(current, action, details)),
-  }), [workspace]);
+  }), [workspace, auth, login, logout, lock]);
 
   return <LocalDataContext.Provider value={value}>{children}</LocalDataContext.Provider>;
 }

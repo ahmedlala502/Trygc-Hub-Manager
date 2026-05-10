@@ -6,6 +6,7 @@ import { Status, Priority, Shift } from './types';
 import { useLocalData } from './components/LocalDataContext';
 
 // Components
+import Login from './components/Login';
 import Sidebar from './components/Sidebar';
 import Dashboard from './components/views/Dashboard';
 import TaskBoard from './components/views/TaskBoard';
@@ -19,7 +20,7 @@ import ReminderEngine from './components/ReminderEngine';
 import TaskModal from './components/TaskModal';
 
 export default function App() {
-  const { user, tasks, handovers, offices, members, loading, isReady, addTask } = useLocalData();
+  const { user, tasks, handovers, offices, members, loading, isReady, addTask, auth, login, isSuperAdmin, hasAdminAccess } = useLocalData();
   const [activeTab, setActiveTab] = useState<'dashboard' | 'tasks' | 'handover' | 'offices' | 'team' | 'ai' | 'settings' | 'reports'>(() => getInitialTab());
   const [settingsTab, setSettingsTab] = useState(() => getInitialSettingsTab());
   const [isGlobalTaskModalOpen, setIsGlobalTaskModalOpen] = useState(false);
@@ -121,6 +122,10 @@ export default function App() {
         <p className="text-sm font-black uppercase tracking-[0.3em] text-ink animate-pulse">Initializing Ecosystem</p>
       </div>
     );
+  }
+
+  if (!auth.isAuthenticated) {
+    return <Login onLogin={login} isLocked={auth.isLocked} />;
   }
 
   const renderContent = () => {

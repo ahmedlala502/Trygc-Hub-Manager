@@ -13,7 +13,7 @@ interface SidebarProps {
 }
 
 export default function Sidebar({ activeTab, setActiveTab, openSettingsTab, stats }: SidebarProps) {
-  const { user } = useLocalData();
+  const { user, logout, isSuperAdmin, hasAdminAccess } = useLocalData();
 
   const menuItems = [
     { section: 'Intelligence' },
@@ -86,6 +86,9 @@ export default function Sidebar({ activeTab, setActiveTab, openSettingsTab, stat
             <div className="min-w-0">
               <span className="block text-sm font-bold text-ink leading-none truncate">{user.name}</span>
               <span className="text-xs font-semibold text-muted mt-1 block truncate">{user.role}</span>
+              {isSuperAdmin && (
+                <span className="inline-block mt-0.5 px-1.5 py-0.5 bg-citrus/10 text-citrus rounded text-[8px] font-black uppercase tracking-widest">Super Admin</span>
+              )}
             </div>
           </div>
           <button 
@@ -99,12 +102,13 @@ export default function Sidebar({ activeTab, setActiveTab, openSettingsTab, stat
 
         <button 
           onClick={() => {
+            logout();
             setActiveTab('dashboard');
           }}
           className="w-full flex items-center justify-center gap-2 p-3 text-muted hover:text-red-500 text-sm font-bold transition-all border border-transparent hover:border-red-100 hover:bg-red-50 rounded-xl"
         >
           <LogOut className="w-4 h-4" />
-          <span>Home</span>
+          <span>Logout</span>
         </button>
       </div>
     </aside>

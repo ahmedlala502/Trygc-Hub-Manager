@@ -8,8 +8,8 @@
 
 const STORE_KEY = 'trygc_flowos_workspace_v4';
 const API_KEYS_STORE = 'trygc_api_keys_v1';
-const TIMEOUT_MS = 10_000;
-const MAX_RETRIES = 1;
+const TIMEOUT_MS = 20_000;
+const MAX_RETRIES = 2;
 
 // ── helpers ──────────────────────────────────────────────────────────────────
 
@@ -67,10 +67,10 @@ export interface AIResult {
 
 async function callGemini(apiKey: string, model: string, prompt: string): Promise<string> {
   const m = model || 'gemini-1.5-flash';
-  const url = `https://generativelanguage.googleapis.com/v1beta/models/${m}:generateContent?key=${apiKey}`;
+  const url = `https://generativelanguage.googleapis.com/v1beta/models/${m}:generateContent`;
   const res = await fetchWithTimeout(url, {
     method: 'POST',
-    headers: { 'Content-Type': 'application/json' },
+    headers: { 'Content-Type': 'application/json', 'x-goog-api-key': apiKey },
     body: JSON.stringify({ contents: [{ parts: [{ text: prompt }] }] }),
   });
   if (!res.ok) {
@@ -201,30 +201,41 @@ async function callProvider(prompt: string): Promise<AIResult> {
 
 // ── smart mock fallback ───────────────────────────────────────────────────────
 
-function mockFallback(prompt: string, _reason?: string): AIResult {
+function mockFallback(prompt: string, reason?: string): AIResult {
   const lower = prompt.toLowerCase();
+  const note = reason ? `\n\n_Note: ${reason}_` : '';
   let text = '';
 
   if (lower.includes('handover') || lower.includes('watchout') || lower.includes('shift summary')) {
     text = [
-      'Ensure all high-priority carry-over tasks are reviewed before shift close.',
-      'Flag any blocked items requiring regional lead intervention.',
-      'Confirm SLA compliance across all active campaigns before sign-off.',
-    ].join(' ');
+      '## Shift Handover Summary',
+      '',
+      '**Pending Actions:**',
+      '- Review all high-priority carry-over tasks before shift close',
+      '- Flag any blocked items requiring regional lead intervention',
+      '- Confirm SLA compliance across all active campaigns',
+      '',
+      '**Key Watchouts:**',
+      '- Verify all open tasks have been updated with latest status',
+      '- Ensure incoming team has full context on active issues',
+      '- Document any escalations or pending approvals',
+    ].join('\n');
   } else if (lower.includes('risk') || lower.includes('alert') || lower.includes('urgent')) {
-    text = 'Escalate all blocked High-priority items to the regional lead. Verify that SLA timers have not elapsed on any in-progress tasks. Document any open dependencies in the handover notes.';
+    text = '## Risk Assessment\n\n**Immediate Actions Required:**\n- Escalate all blocked high-priority items to regional lead\n- Verify SLA timers have not elapsed on in-progress tasks\n- Document all open dependencies in handover notes\n- Identify any tasks approaching deadline without progress';
   } else if (lower.includes('title') || lower.includes('rewrite') || lower.includes('improve title')) {
     const stripped = prompt.replace(/rewrite.*?original:\s*"/i, '').replace(/".*$/s, '').trim();
     text = stripped.length > 10 ? stripped.slice(0, 80) + (stripped.length > 80 ? '...' : '') : prompt + ' — action item';
   } else if (lower.includes('improve') || lower.includes('notes') || lower.includes('details')) {
-    text = 'Objective: complete the outlined deliverable with full stakeholder sign-off. Ensure all dependencies are resolved and regional compliance requirements are met before closure.';
+    text = '**Objective:** Complete the outlined deliverable with full stakeholder sign-off. Ensure all dependencies are resolved and regional compliance requirements are met before closure. Coordinate with relevant teams to address any blockers and document all decisions made during execution.';
   } else if (lower.includes('status') || lower.includes('summary') || lower.includes('overview')) {
-    text = 'All regional hubs are active. Review carry-over task list and ensure pending handovers are acknowledged. No critical SLA breaches detected at this time.';
+    text = '## Operations Status\n\nAll regional hubs are active and reporting. Review the carry-over task list and ensure all pending handovers are acknowledged before next shift. No critical SLA breaches detected at this time. Monitor high-priority items for any changes in status.';
+  } else if (lower.includes('hello') || lower.includes('hi') || lower.includes('help')) {
+    text = 'Hello! I\'m your AI operations assistant. I can help you with:\n- Task summaries and status updates\n- Risk assessments and alerts\n- Shift handover documentation\n- Performance reporting\n\nTo get started, try asking about "risks", "tasks", or "handovers". For full AI capabilities, add an API key in Settings → AI & API.';
   } else {
-    text = 'Action confirmed. Review outstanding tasks, resolve blockers, and ensure all handovers are properly documented before shift end.';
+    text = 'Action confirmed. Review outstanding tasks, resolve any blockers, and ensure all handovers are properly documented before the end of your shift.';
   }
 
-  return { text, provider: 'mock' };
+  return { text: text + note, provider: 'mock' };
 }
 
 // ── public API ────────────────────────────────────────────────────────────────

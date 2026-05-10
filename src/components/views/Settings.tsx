@@ -21,6 +21,7 @@ import {
   Sliders,
   Terminal,
   Trash2,
+  Upload,
   User,
   UserCheck,
   Users,
@@ -102,7 +103,7 @@ const PRESET_ROLES = [
 ];
 
 export default function Settings({ activeTab: controlledTab, setActiveTab: setControlledTab }: SettingsProps) {
-  const { user, settings, members, tasks, handovers, auditLogs, updateSettings, updateUser, addMember, updateMember, deleteMember, exportWorkspace, resetData } = useLocalData();
+  const { user, settings, members, tasks, handovers, auditLogs, updateSettings, updateUser, addMember, updateMember, deleteMember, exportWorkspace, importData, resetData, isSuperAdmin, hasAdminAccess, lock, logout } = useLocalData();
   const [internalTab, setInternalTab] = useState(controlledTab || 'general');
   const activeTab = controlledTab || internalTab;
   const setActiveTab = setControlledTab || setInternalTab;
@@ -114,6 +115,8 @@ export default function Settings({ activeTab: controlledTab, setActiveTab: setCo
   const configRef = useRef(config);
   const [profile, setProfile] = useState(user);
   const [newTeam, setNewTeam] = useState('');
+  const [importError, setImportError] = useState('');
+  const [importSuccess, setImportSuccess] = useState('');
   const isAdmin = isAdminUser(user.role);
 
   // ── User Management state ─────────────────────────────────────────────────
@@ -425,6 +428,9 @@ export default function Settings({ activeTab: controlledTab, setActiveTab: setCo
                   <Field label="Office"><input className={inputClass} value={profile.office} onChange={e => setProfile({ ...profile, office: e.target.value })} /></Field>
                   <Field label="Country"><input className={inputClass} value={profile.country} onChange={e => setProfile({ ...profile, country: e.target.value })} /></Field>
                   <Field label="Email"><input className={inputClass} value={profile.email} onChange={e => setProfile({ ...profile, email: e.target.value })} /></Field>
+                  <Field label="Passcode">
+                    <input className={inputClass} type="password" value={profile.password || ''} onChange={e => setProfile({ ...profile, password: e.target.value })} placeholder="Set your passcode" />
+                  </Field>
                 </div>
                 <button onClick={saveProfile} className="px-8 py-3 bg-ink text-white rounded-xl text-xs font-black uppercase tracking-widest hover:scale-[1.02] transition-all">Save Profile</button>
 
@@ -717,18 +723,17 @@ export default function Settings({ activeTab: controlledTab, setActiveTab: setCo
 
           {/* ── Security / Auth ── */}
           {activeTab === 'security' && (
-            <Panel title="Authentication" desc="Session and access control settings for this local workspace.">
-              <div className="grid grid-cols-3 gap-5">
+            <Panel title="Authentication & Security" desc="Session and access control settings for this local workspace.">
+              <div className="grid grid-cols-2 gap-5">
                 <Field label="Auth Mode">
-                  <select className={inputClass} value={config.authMode || 'none'} onChange={e => setConfig({ ...configRef.current, authMode: e.target.value as any })}>
+                  <select className={inputClass} value={config.authMode || 'none'} onChange={e => { const next = { ...configRef.current, authMode: e.target.value as any }; setConfig(next); saveConfig(next); }}>
                     <option value="none">No Login Required</option>
                     <option value="local">Local Passcode</option>
                   </select>
                 </Field>
-                <Field label="Min Passcode Length"><input type="number" className={inputClass} value={config.minPasscodeLength || 6} onChange={e => setConfig({ ...configRef.current, minPasscodeLength: Number(e.target.value) })} /></Field>
-                <Field label="Session Lock (minutes)"><input type="number" className={inputClass} value={config.sessionLockMinutes || 60} onChange={e => setConfig({ ...configRef.current, sessionLockMinutes: Number(e.target.value) })} /></Field>
+                <Field label="Min Passcode Length"><input type="number" className={inputClass} value={config.minPasscodeLength || 6} onChange={e => { const next = { ...configRef.current, minPasscodeLength: Number(e.target.value) }; setConfig(next); }} onBlur={() => saveConfig()} /></Field>
               </div>
-              <div className="mt-8 p-6 bg-stone/30 border border-dawn rounded-3xl space-y-3">
+              <div className="mt-6 p-6 bg-stone/30 border border-dawn rounded-3xl space-y-4">
                 <div className="flex items-center gap-2 text-muted mb-2">
                   <Shield className="w-4 h-4" />
                   <span className="text-[10px] font-black uppercase tracking-[0.2em]">Active Session</span>
@@ -742,13 +747,27 @@ export default function Settings({ activeTab: controlledTab, setActiveTab: setCo
                     </div>
                   </div>
                   <div className="flex items-center gap-2">
-                    {isAdmin && <span className="px-2 py-1 bg-citrus/10 text-citrus rounded-lg text-[9px] font-black uppercase tracking-widest">Admin</span>}
+                    {isSuperAdmin && <span className="px-2 py-1 bg-citrus/10 text-citrus rounded-lg text-[9px] font-black uppercase tracking-widest">Super Admin</span>}
+                    {!isSuperAdmin && isAdmin && <span className="px-2 py-1 bg-amber-50 text-amber-600 rounded-lg text-[9px] font-black uppercase tracking-widest">Admin</span>}
                     <span className="px-2 py-1 bg-green-50 text-green-600 rounded-lg text-[9px] font-black uppercase tracking-widest">Active</span>
                   </div>
                 </div>
-                <p className="text-[10px] font-bold text-muted/60 pt-1">
-                  To manage team members and assign roles, go to <button className="text-citrus underline" onClick={() => setActiveTab('users')}>User Management</button>.
-                </p>
+                <div className="flex items-center justify-between">
+                  <p className="text-[10px] font-bold text-muted/60">
+                    To manage team members and assign roles, go to <button className="text-citrus underline" onClick={() => setActiveTab('users')}>User Management</button>.
+                  </p>
+                  <button
+                    onClick={() => {
+                      if (window.confirm('Lock your session? You will need to re-enter your passcode.')) {
+                        lock();
+                        logout();
+                      }
+                    }}
+                    className="px-4 py-2 bg-stone border border-dawn rounded-xl text-[9px] font-black uppercase tracking-widest text-muted hover:text-ink transition-all"
+                  >
+                    Lock Session
+                  </button>
+                </div>
               </div>
             </Panel>
           )}
@@ -758,7 +777,7 @@ export default function Settings({ activeTab: controlledTab, setActiveTab: setCo
             <Panel title="User Management" desc="Create team members, assign roles, update profiles, and switch active users.">
               <div className="space-y-6">
 
-                {/* Search + Add */}
+                {/* Search + Add + Import/Export */}
                 <div className="flex items-center gap-3">
                   <div className="relative flex-1">
                     <input
@@ -773,6 +792,59 @@ export default function Settings({ activeTab: controlledTab, setActiveTab: setCo
                       </button>
                     )}
                   </div>
+                  {isSuperAdmin && (
+                    <>
+                      <button
+                        onClick={() => {
+                          const blob = new Blob([JSON.stringify(members, null, 2)], { type: 'application/json' });
+                          const url = URL.createObjectURL(blob);
+                          const a = document.createElement('a');
+                          a.href = url;
+                          a.download = `trygc-users-${new Date().toISOString().split('T')[0]}.json`;
+                          a.click();
+                          URL.revokeObjectURL(url);
+                        }}
+                        className="flex items-center gap-2 px-4 py-3 bg-stone border border-dawn rounded-xl text-xs font-black uppercase tracking-widest text-muted hover:text-ink transition-all"
+                      >
+                        <Download className="w-3.5 h-3.5" />
+                        Export
+                      </button>
+                      <label className="flex items-center gap-2 px-4 py-3 bg-stone border border-dawn rounded-xl text-xs font-black uppercase tracking-widest text-muted hover:text-ink cursor-pointer transition-all">
+                        <Upload className="w-3.5 h-3.5" />
+                        Import
+                        <input
+                          type="file"
+                          accept=".json"
+                          className="hidden"
+                          onChange={e => {
+                            const file = e.target.files?.[0];
+                            if (!file) return;
+                            const reader = new FileReader();
+                            reader.onload = (ev) => {
+                              try {
+                                const data = JSON.parse(ev.target?.result as string);
+                                if (Array.isArray(data)) {
+                                  data.forEach(async (m: any) => {
+                                    if (m.name) await addMember(m);
+                                  });
+                                  setImportSuccess(`Imported ${data.length} users successfully.`);
+                                  setTimeout(() => setImportSuccess(''), 3000);
+                                } else {
+                                  setImportError('Invalid format. Expected an array of users.');
+                                  setTimeout(() => setImportError(''), 3000);
+                                }
+                              } catch {
+                                setImportError('Invalid JSON file.');
+                                setTimeout(() => setImportError(''), 3000);
+                              }
+                            };
+                            reader.readAsText(file);
+                            e.target.value = '';
+                          }}
+                        />
+                      </label>
+                    </>
+                  )}
                   <button
                     onClick={() => { setShowAddMember(v => !v); setNewMemberForm(emptyMember); }}
                     className="flex items-center gap-2 px-5 py-3 bg-ink text-white rounded-xl text-xs font-black uppercase tracking-widest hover:scale-[1.02] transition-all"
@@ -781,6 +853,17 @@ export default function Settings({ activeTab: controlledTab, setActiveTab: setCo
                     New User
                   </button>
                 </div>
+
+                {importError && (
+                  <div className="flex items-center gap-2 px-4 py-3 bg-red-50 border border-red-100 rounded-xl text-xs font-bold text-red-600">
+                    <AlertCircle className="w-3.5 h-3.5" /> {importError}
+                  </div>
+                )}
+                {importSuccess && (
+                  <div className="flex items-center gap-2 px-4 py-3 bg-green-50 border border-green-100 rounded-xl text-xs font-bold text-green-600">
+                    <CheckCircle2 className="w-3.5 h-3.5" /> {importSuccess}
+                  </div>
+                )}
 
                 {/* Add member form */}
                 {showAddMember && (
@@ -870,7 +953,8 @@ export default function Settings({ activeTab: controlledTab, setActiveTab: setCo
                               <div className="flex items-center gap-2">
                                 <span className="font-black text-sm text-ink truncate">{m.name}</span>
                                 {isCurrentUser && <span className="text-[8px] font-black uppercase tracking-widest text-citrus">You</span>}
-                                {isAdminUser(m.role || '') && <span className="text-[8px] font-black uppercase tracking-widest px-1.5 py-0.5 bg-amber-50 text-amber-600 rounded">Admin</span>}
+                                {m.role === 'Super Admin' && <span className="text-[8px] font-black uppercase tracking-widest px-1.5 py-0.5 bg-citrus/10 text-citrus rounded">Super Admin</span>}
+                                {isAdminUser(m.role || '') && m.role !== 'Super Admin' && <span className="text-[8px] font-black uppercase tracking-widest px-1.5 py-0.5 bg-amber-50 text-amber-600 rounded">Admin</span>}
                               </div>
                               <div className="flex items-center gap-2 text-[9px] font-bold text-muted uppercase tracking-widest">
                                 <span>{m.role || 'No role'}</span>
@@ -915,7 +999,7 @@ export default function Settings({ activeTab: controlledTab, setActiveTab: setCo
                               ) : (
                                 <button
                                   onClick={() => setDeleteConfirmId(m.id)}
-                                  disabled={isCurrentUser}
+                                  disabled={isCurrentUser || (m.role === 'Super Admin' && !isSuperAdmin)}
                                   className="p-2 rounded-lg text-muted hover:text-red-500 hover:bg-red-50 transition-all disabled:opacity-30 disabled:cursor-not-allowed"
                                   title="Delete"
                                 >
@@ -962,7 +1046,6 @@ export default function Settings({ activeTab: controlledTab, setActiveTab: setCo
                                 <button
                                   onClick={async () => {
                                     await updateMember(m.id, editForm);
-                                    // If editing yourself, also update active user profile
                                     if (isCurrentUser && editForm.name && editForm.role) {
                                       await updateUser({ name: editForm.name, role: editForm.role, office: editForm.office || user.office, country: editForm.country || user.country });
                                     }
@@ -991,7 +1074,7 @@ export default function Settings({ activeTab: controlledTab, setActiveTab: setCo
 
                 {/* Summary bar */}
                 <div className="flex items-center justify-between p-4 bg-stone/40 rounded-2xl border border-dawn text-[10px] font-bold text-muted">
-                  <span>{members.length} total users · {members.filter(m => isAdminUser(m.role || '')).length} admins</span>
+                  <span>{members.length} total users · {members.filter(m => m.role === 'Super Admin').length} super admins · {members.filter(m => isAdminUser(m.role || '') && m.role !== 'Super Admin').length} admins</span>
                   <span>Active: <b className="text-ink">{user.name}</b></span>
                 </div>
               </div>
@@ -1030,29 +1113,69 @@ export default function Settings({ activeTab: controlledTab, setActiveTab: setCo
           {/* ── Data ── */}
           {activeTab === 'data' && (
             <Panel title="Data Management & Audit" desc="Backup, reset, and review local configuration events.">
-              <div className="grid grid-cols-2 gap-6">
-                <button onClick={handleExportData} className="flex flex-col items-center justify-center p-10 bg-white border border-dawn rounded-[32px] hover:border-citrus transition-all group">
+              <div className="grid grid-cols-3 gap-6">
+                <button onClick={handleExportData} className="flex flex-col items-center justify-center p-8 bg-white border border-dawn rounded-[32px] hover:border-citrus transition-all group">
                   <Download className="w-8 h-8 text-muted group-hover:text-citrus transition-colors mb-4" />
                   <span className="font-black text-xs uppercase tracking-widest text-ink">Export Workspace</span>
-                  <span className="text-[9px] font-bold text-muted/40 mt-2 text-center px-4">Download all local data as JSON.</span>
+                  <span className="text-[9px] font-bold text-muted/40 mt-2 text-center px-2">Download all local data as JSON.</span>
                 </button>
-                <button onClick={() => setShowConfirmReset(true)} className="flex flex-col items-center justify-center p-10 bg-white border border-dawn rounded-[32px] hover:border-red-500 transition-all group">
+                <label className="flex flex-col items-center justify-center p-8 bg-white border border-dawn rounded-[32px] hover:border-citrus transition-all group cursor-pointer">
+                  <Upload className="w-8 h-8 text-muted group-hover:text-citrus transition-colors mb-4" />
+                  <span className="font-black text-xs uppercase tracking-widest text-ink">Import Workspace</span>
+                  <span className="text-[9px] font-bold text-muted/40 mt-2 text-center px-2">Restore from a JSON backup.</span>
+                  <input
+                    type="file"
+                    accept=".json"
+                    className="hidden"
+                    onChange={e => {
+                      const file = e.target.files?.[0];
+                      if (!file) return;
+                      const reader = new FileReader();
+                      reader.onload = (ev) => {
+                        const result = importData(ev.target?.result as string);
+                        if (result) {
+                          setImportSuccess('Workspace imported successfully. Reloading...');
+                          setTimeout(() => window.location.reload(), 1000);
+                        } else {
+                          setImportError('Invalid workspace file. Please check the file format.');
+                          setTimeout(() => setImportError(''), 3000);
+                        }
+                      };
+                      reader.readAsText(file);
+                      e.target.value = '';
+                    }}
+                  />
+                </label>
+                <button onClick={() => setShowConfirmReset(true)} className="flex flex-col items-center justify-center p-8 bg-white border border-dawn rounded-[32px] hover:border-red-500 transition-all group">
                   <Trash2 className="w-8 h-8 text-muted group-hover:text-red-500 transition-colors mb-4" />
                   <span className="font-black text-xs uppercase tracking-widest text-red-500">Atomic Reset</span>
-                  <span className="text-[9px] font-bold text-muted/40 mt-2 text-center px-4">Wipe local browser data. Irreversible.</span>
+                  <span className="text-[9px] font-bold text-muted/40 mt-2 text-center px-2">Wipe local browser data. Irreversible.</span>
                 </button>
               </div>
+              {importError && (
+                <div className="mt-4 flex items-center gap-2 px-4 py-3 bg-red-50 border border-red-100 rounded-xl text-xs font-bold text-red-600">
+                  <AlertCircle className="w-3.5 h-3.5" /> {importError}
+                </div>
+              )}
+              {importSuccess && (
+                <div className="mt-4 flex items-center gap-2 px-4 py-3 bg-green-50 border border-green-100 rounded-xl text-xs font-bold text-green-600">
+                  <CheckCircle2 className="w-3.5 h-3.5" /> {importSuccess}
+                </div>
+              )}
               {showConfirmReset && (
                 <div className="mt-6 p-8 bg-red-50 border border-red-100 rounded-3xl space-y-6">
-                  <div className="flex gap-4"><AlertCircle className="w-6 h-6 text-red-500 shrink-0" /><p className="text-xs font-bold text-red-900/60 leading-relaxed">You are about to delete all local tasks, offices, handovers, settings, and members.</p></div>
+                  <div className="flex gap-4"><AlertCircle className="w-6 h-6 text-red-500 shrink-0" /><p className="text-xs font-bold text-red-900/60 leading-relaxed">You are about to delete all local tasks, offices, handovers, settings, members, and audit logs.</p></div>
                   <button onClick={handleResetData} disabled={saving} className="px-6 py-3 bg-red-500 text-white rounded-xl text-[10px] font-black uppercase tracking-widest disabled:opacity-50">{saving ? 'Resetting...' : 'Yes, Confirm Deletion'}</button>
                 </div>
               )}
               <div className="mt-8 space-y-3">
                 <h4 className="text-xs font-black uppercase tracking-[0.2em] text-muted">Recent Audit</h4>
-                {(auditLogs || []).slice(0, 8).map(event => (
+                {(auditLogs || []).slice(0, 10).map(event => (
                   <div key={event.id} className="p-3 bg-stone/30 border border-dawn rounded-xl text-xs font-bold text-muted"><b className="text-ink">{event.action}</b> · {new Date(event.timestamp).toLocaleString()}</div>
                 ))}
+                {(!auditLogs || auditLogs.length === 0) && (
+                  <p className="text-xs font-bold text-muted/40 text-center py-4">No audit events yet.</p>
+                )}
               </div>
             </Panel>
           )}
