@@ -13,19 +13,10 @@ interface TaskModalProps {
   initialTask?: Task | null;
 }
 
-const KNOWN_USERS = [
-  { name: 'Ahmed Essmat', email: 'ahmed@ops.com', role: 'Operations Lead' },
-  { name: 'Mona KSA', email: 'mona@ksa.ops', role: 'Regional Manager' },
-  { name: 'Nour UAE', email: 'nour@uae.ops', role: 'Logistics Head' },
-  { name: 'Fahad KW', email: 'fahad@kw.ops', role: 'Support Analyst' },
-  { name: 'Sara Qat', email: 'sara@qat.ops', role: 'Supply Chain' },
-  { name: 'Omar Egy', email: 'omar@egy.ops', role: 'Fleet Manager' },
-];
-
 const createBlankTask = (teams: string[], office: string, country: string): Partial<Task> => ({
   title: '',
   campaign: '',
-  owner: 'Ahmed Essmat',
+  owner: '',
   country,
   office,
   team: teams[0] || TEAMS[0],
@@ -39,7 +30,7 @@ const createBlankTask = (teams: string[], office: string, country: string): Part
 });
 
 export default function TaskModal({ isOpen, onClose, onSave, initialTask }: TaskModalProps) {
-  const { offices, settings, user } = useLocalData();
+  const { offices, settings, user, members } = useLocalData();
   const teamOptions = settings.teams?.length ? settings.teams : TEAMS;
   const officeOptions = offices.length ? offices : [];
   const defaultOffice = user.office || officeOptions[0]?.name || 'Cairo HQ';
@@ -49,7 +40,31 @@ export default function TaskModal({ isOpen, onClose, onSave, initialTask }: Task
   const [reminderTime, setReminderTime] = useState(new Date(Date.now() + 3600000).toISOString().slice(0, 16));
 
   const [isSuggesting, setIsSuggesting] = useState(false);
-  const [showSuggestions, setShowSuggestions] = useState(false);
+
+  const assignableMembers = useMemo(() => {
+    const pool = members.filter(member => !form.team || member.team === form.team);
+    const deduped = new Map<string, typeof pool[number]>();
+
+    pool.forEach(member => {
+      if (!deduped.has(member.name)) deduped.set(member.name, member);
+    });
+
+    if (user.name && !deduped.has(user.name)) {
+      deduped.set(user.name, {
+        id: 'current-user',
+        name: user.name,
+        team: form.team || user.team || teamOptions[0],
+        office: user.office,
+        country: user.country,
+        role: user.role,
+        tasksCompleted: 0,
+        handoversOut: 0,
+        onTime: 0,
+      });
+    }
+
+    return Array.from(deduped.values()).sort((a, b) => a.name.localeCompare(b.name));
+  }, [form.team, members, teamOptions, user]);
 
   useEffect(() => {
     if (!isOpen) return;
@@ -58,16 +73,6 @@ export default function TaskModal({ isOpen, onClose, onSave, initialTask }: Task
       owner: user.name,
     });
   }, [defaultCountry, defaultOffice, initialTask, isOpen, teamOptions, user.name]);
-
-  const suggestions = useMemo(() => {
-    const input = form.owner?.toLowerCase() || '';
-    if (!input || input.includes('@')) return [];
-
-    return KNOWN_USERS.filter(u =>
-      u.name.toLowerCase().includes(input) ||
-      u.email.toLowerCase().includes(input)
-    ).slice(0, 4);
-  }, [form.owner]);
 
   if (!isOpen) return null;
 
@@ -218,57 +223,18 @@ export default function TaskModal({ isOpen, onClose, onSave, initialTask }: Task
                       </motion.div>
                     )}
                   </label>
-                  <div className="relative group/owner">
-                    <input
-                      type="text"
-                      placeholder="Owner name or email"
-                      value={form.owner || ''}
-                      onFocus={() => setShowSuggestions(true)}
-                      onBlur={() => setTimeout(() => setShowSuggestions(false), 200)}
-                      onChange={e => setForm({ ...form, owner: e.target.value })}
-                      className="w-full bg-stone/50 border border-dawn focus:border-citrus rounded-xl px-4 py-3 text-sm font-bold outline-none transition-all"
-                    />
-                    <AnimatePresence>
-                      {showSuggestions && suggestions.length > 0 && (
-                        <motion.div
-                          initial={{ opacity: 0, y: -10, scale: 0.95 }}
-                          animate={{ opacity: 1, y: 0, scale: 1 }}
-                          exit={{ opacity: 0, scale: 0.95 }}
-                          className="absolute z-20 w-full mt-2 bg-white border border-dawn rounded-2xl shadow-2xl overflow-hidden backdrop-blur-xl"
-                        >
-                          <div className="px-4 py-2 bg-stone/50 border-b border-dawn">
-                            <span className="text-[10px] font-black text-muted uppercase tracking-widest">Suggested Accounts</span>
-                          </div>
-                          {suggestions.map(u => (
-                            <button
-                              key={u.email}
-                              type="button"
-                              onClick={() => {
-                                setForm({ ...form, owner: u.email });
-                                setShowSuggestions(false);
-                              }}
-                              className="w-full px-4 py-3 text-left hover:bg-citrus/5 transition-all flex items-center justify-between group active:scale-[0.98]"
-                            >
-                              <div className="flex items-center gap-3">
-                                <div className="w-8 h-8 rounded-full bg-citrus/10 flex items-center justify-center text-citrus text-[10px] font-bold">
-                                  {u.name.split(' ').map(n => n[0]).join('')}
-                                </div>
-                                <div className="min-w-0">
-                                  <span className="block text-xs font-bold text-ink truncate">{u.name}</span>
-                                  <div className="flex items-center gap-1.5">
-                                    <span className="text-[10px] text-muted truncate">{u.email}</span>
-                                    <span className="w-1 h-1 rounded-full bg-stone" />
-                                    <span className="text-[10px] text-citrus/60 font-semibold truncate">{u.role}</span>
-                                  </div>
-                                </div>
-                              </div>
-                              <Plus className="w-3 h-3 text-citrus opacity-0 group-hover:opacity-100 transition-opacity" />
-                            </button>
-                          ))}
-                        </motion.div>
-                      )}
-                    </AnimatePresence>
-                  </div>
+                  <select
+                    value={form.owner || ''}
+                    onChange={e => setForm({ ...form, owner: e.target.value })}
+                    className="w-full bg-stone/50 border border-dawn focus:border-citrus rounded-xl px-4 py-3 text-sm font-bold outline-none transition-all"
+                  >
+                    <option value="">Select assignee</option>
+                    {assignableMembers.map(member => (
+                      <option key={member.id} value={member.name}>
+                        {member.name} - {member.role || 'Viewer'} - {member.office}
+                      </option>
+                    ))}
+                  </select>
                 </div>
 
                 <div className="space-y-2">

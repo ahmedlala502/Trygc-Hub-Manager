@@ -1,168 +1,344 @@
-import React, { useState, useEffect } from 'react';
-import { Sparkles, Lock, LogIn, AlertCircle, Eye, EyeOff, Shield } from 'lucide-react';
-import { motion, AnimatePresence } from 'motion/react';
+import React, { useMemo, useState } from 'react';
+import { AlertCircle, ArrowRight, CheckCircle2, Eye, EyeOff, Lock, Mail, Shield, Sparkles, UserPlus, Users } from 'lucide-react';
+import { AnimatePresence, motion } from 'motion/react';
+import { useLocalData } from './LocalDataContext';
 
 interface LoginProps {
-  onLogin: (password: string) => Promise<boolean>;
+  onLogin: (email: string, password: string) => Promise<{ ok: boolean; error?: string }>;
   isLocked?: boolean;
-  passwordless?: boolean;
 }
 
-export default function Login({ onLogin, isLocked, passwordless = false }: LoginProps) {
-  const [password, setPassword] = useState('');
-  const [error, setError] = useState('');
-  const [loading, setLoading] = useState(false);
-  const [showPassword, setShowPassword] = useState(false);
-  const [step, setStep] = useState<'welcome' | 'login'>('welcome');
+type AuthTab = 'signin' | 'signup';
 
-  const handleSubmit = async (e: React.FormEvent) => {
+export default function Login({ onLogin, isLocked }: LoginProps) {
+  const { pendingSignups, requestSignup, settings } = useLocalData();
+  const [tab, setTab] = useState<AuthTab>('signin');
+  const [signinForm, setSigninForm] = useState({ email: '', password: '' });
+  const [signupForm, setSignupForm] = useState({
+    name: '',
+    email: '',
+    password: '',
+    team: settings.teams?.[0] || 'Operations Team',
+    office: settings.locations?.[0] || 'Cairo HQ',
+    country: 'EG',
+  });
+  const [showSigninPassword, setShowSigninPassword] = useState(false);
+  const [showSignupPassword, setShowSignupPassword] = useState(false);
+  const [loading, setLoading] = useState(false);
+  const [error, setError] = useState('');
+  const [success, setSuccess] = useState('');
+
+  const pendingByEmail = useMemo(() => {
+    const map = new Map<string, boolean>();
+    pendingSignups.forEach(request => map.set(request.email.toLowerCase(), true));
+    return map;
+  }, [pendingSignups]);
+
+  const handleSignIn = async (e: React.FormEvent) => {
     e.preventDefault();
-    if (!passwordless && !password.trim()) return;
     setLoading(true);
     setError('');
+    setSuccess('');
     try {
-      const ok = await onLogin(passwordless ? '__passwordless__' : password.trim());
-      if (!ok) {
-        setError('Invalid passcode. Try again.');
-        setPassword('');
+      const result = await onLogin(signinForm.email, signinForm.password);
+      if (!result.ok) {
+        setError(result.error || 'Sign in failed.');
       }
     } catch {
-      setError('Authentication failed.');
+      setError('Sign in failed.');
     } finally {
       setLoading(false);
     }
   };
 
+  const handleSignUp = async (e: React.FormEvent) => {
+    e.preventDefault();
+    setLoading(true);
+    setError('');
+    setSuccess('');
+    try {
+      const result = await requestSignup(signupForm);
+      if (!result.ok) {
+        setError(result.error || 'Request access failed.');
+      } else {
+        setSuccess('Access request sent. Your account will stay pending until you approve it from User Management.');
+        setSignupForm(current => ({ ...current, name: '', email: '', password: '' }));
+        setTab('signin');
+      }
+    } catch {
+      setError('Request access failed.');
+    } finally {
+      setLoading(false);
+    }
+  };
+
+  const isPendingEmail = pendingByEmail.get(signinForm.email.trim().toLowerCase());
+
   return (
-    <div className="h-screen w-full flex items-center justify-center bg-stone overflow-hidden">
-      <AnimatePresence mode="wait">
-        {step === 'welcome' ? (
-          <motion.div
-            key="welcome"
-            initial={{ opacity: 0, scale: 0.95 }}
-            animate={{ opacity: 1, scale: 1 }}
-            exit={{ opacity: 0, scale: 0.95 }}
-            className="text-center space-y-8"
-          >
-            <motion.div
-              initial={{ scale: 0 }}
-              animate={{ scale: 1 }}
-              transition={{ type: 'spring', stiffness: 200, damping: 15 }}
-            >
-              <div className="w-20 h-20 bg-citrus rounded-[28px] flex items-center justify-center mx-auto shadow-2xl shadow-citrus/20 mb-6">
-                <Sparkles className="w-10 h-10 text-white" />
+    <div className="min-h-screen w-full bg-stone px-6 py-10">
+      <div className="mx-auto grid min-h-[calc(100vh-5rem)] max-w-6xl gap-8 lg:grid-cols-[1.1fr_0.9fr]">
+        <div className="relative overflow-hidden rounded-[40px] bg-ink px-8 py-10 text-white shadow-2xl lg:px-12 lg:py-14">
+          <div className="absolute inset-0 bg-[radial-gradient(circle_at_top_right,_rgba(245,158,11,0.24),_transparent_32%),radial-gradient(circle_at_bottom_left,_rgba(255,255,255,0.08),_transparent_28%)]" />
+          <div className="relative flex h-full flex-col justify-between gap-10">
+            <div className="space-y-6">
+              <div className="flex h-16 w-16 items-center justify-center rounded-[22px] bg-citrus text-white shadow-xl shadow-citrus/20">
+                <Sparkles className="h-8 w-8" />
               </div>
-            </motion.div>
-            <div className="space-y-3">
-              <h1 className="relaxed-title text-4xl text-ink font-black tracking-tight">TryGC Hub Manager</h1>
-              <p className="text-muted font-medium text-lg max-w-md mx-auto">
-                Operational command center for shift management, task tracking, and team coordination.
-              </p>
-            </div>
-            <motion.button
-              whileHover={{ scale: 1.02 }}
-              whileTap={{ scale: 0.98 }}
-              onClick={() => setStep('login')}
-              className="inline-flex items-center gap-3 px-8 py-4 bg-ink text-white rounded-2xl font-black text-sm uppercase tracking-widest shadow-xl shadow-ink/10 hover:bg-ink/90 transition-all"
-            >
-              <Lock className="w-4 h-4" />
-              <span>Access Control Center</span>
-            </motion.button>
-            <p className="text-[10px] font-bold text-muted/40 mt-4">
-              Secure workspace · Local-first · No data leaves your browser
-            </p>
-          </motion.div>
-        ) : (
-          <motion.div
-            key="login"
-            initial={{ opacity: 0, y: 20 }}
-            animate={{ opacity: 1, y: 0 }}
-            exit={{ opacity: 0, y: -20 }}
-            className="w-full max-w-sm mx-auto space-y-8"
-          >
-            <div className="text-center space-y-2">
-              <div className="w-14 h-14 bg-ink rounded-[18px] flex items-center justify-center mx-auto shadow-lg mb-4">
-                <Shield className="w-7 h-7 text-citrus" />
+              <div className="space-y-4">
+                <p className="text-[11px] font-black uppercase tracking-[0.35em] text-citrus">TryGC Hub Manager</p>
+                <h1 className="relaxed-title max-w-lg text-4xl font-black tracking-tight lg:text-5xl">
+                  Secure sign-in for task control, handovers, and team continuity.
+                </h1>
+                <p className="max-w-xl text-sm font-medium leading-7 text-white/75">
+                  Approved users get their own profile, their own performance view, and the right access for their team. New requests stay pending until you approve them.
+                </p>
               </div>
-              <h2 className="relaxed-title text-2xl font-black text-ink">{passwordless ? 'Workspace Closed' : 'Authentication Required'}</h2>
-              <p className="text-sm font-medium text-muted">
-                {passwordless ? 'Press enter to open the workspace again.' : 'Enter your passcode to access the workspace.'}
-              </p>
-              {isLocked && (
-                <div className="flex items-center justify-center gap-2 text-amber-600 text-xs font-bold mt-2">
-                  <AlertCircle className="w-3.5 h-3.5" />
-                  Session locked due to inactivity
-                </div>
-              )}
             </div>
 
-            <form onSubmit={handleSubmit} className="space-y-5">
-              {!passwordless && (
-                <div className="space-y-2">
-                  <div className="relative">
-                    <input
-                      type={showPassword ? 'text' : 'password'}
-                      value={password}
-                      onChange={e => { setPassword(e.target.value); setError(''); }}
-                      placeholder="Enter passcode"
-                      autoFocus
-                      className={`w-full bg-white border-2 rounded-2xl px-5 py-4 text-sm font-bold focus:outline-none transition-all pr-12 ${
-                        error ? 'border-red-300 focus:border-red-500' : 'border-dawn focus:border-citrus'
-                      }`}
-                    />
-                    <button
-                      type="button"
-                      onClick={() => setShowPassword(v => !v)}
-                      className="absolute right-4 top-1/2 -translate-y-1/2 text-muted hover:text-ink transition-colors"
-                    >
-                      {showPassword ? <EyeOff className="w-4 h-4" /> : <Eye className="w-4 h-4" />}
-                    </button>
-                  </div>
-                  {error && (
-                    <motion.p
-                      initial={{ opacity: 0, y: -5 }}
-                      animate={{ opacity: 1, y: 0 }}
-                      className="flex items-center gap-1.5 text-red-500 text-xs font-bold"
-                    >
-                      <AlertCircle className="w-3.5 h-3.5 shrink-0" />
-                      {error}
-                    </motion.p>
-                  )}
-                </div>
-              )}
+            <div className="grid gap-4 sm:grid-cols-3">
+              <FeatureCard
+                icon={<Shield className="h-4 w-4" />}
+                title="Approval Gate"
+                text="Sign-up stays pending until you approve it."
+              />
+              <FeatureCard
+                icon={<Users className="h-4 w-4" />}
+                title="Team Aware"
+                text="Accounts stay aligned to team, office, and country."
+              />
+              <FeatureCard
+                icon={<Lock className="h-4 w-4" />}
+                title="Master Locked"
+                text="Protected controls stay reserved for your master account."
+              />
+            </div>
+          </div>
+        </div>
 
-              <motion.button
-                whileHover={{ scale: 1.02 }}
-                whileTap={{ scale: 0.98 }}
-                type="submit"
-                disabled={loading || (!passwordless && !password.trim())}
-                className="w-full flex items-center justify-center gap-3 px-6 py-4 bg-ink text-white rounded-2xl font-black text-sm uppercase tracking-widest shadow-xl shadow-ink/10 hover:bg-ink/90 transition-all disabled:opacity-40"
-              >
-                {loading ? (
-                  <Sparkles className="w-4 h-4 animate-spin" />
-                ) : (
-                  <LogIn className="w-4 h-4" />
-                )}
-                <span>{loading ? 'Verifying...' : passwordless ? 'Enter Workspace' : 'Unlock Workspace'}</span>
-              </motion.button>
+        <div className="flex items-center justify-center">
+          <div className="w-full max-w-xl rounded-[32px] border border-dawn bg-white p-6 shadow-xl shadow-ink/5 lg:p-8">
+            <div className="mb-6 flex items-center gap-2 rounded-2xl bg-stone/60 p-1.5">
+              <AuthTabButton active={tab === 'signin'} icon={<Mail className="h-4 w-4" />} label="Sign In" onClick={() => { setTab('signin'); setError(''); setSuccess(''); }} />
+              <AuthTabButton active={tab === 'signup'} icon={<UserPlus className="h-4 w-4" />} label="Request Access" onClick={() => { setTab('signup'); setError(''); setSuccess(''); }} />
+            </div>
 
-              <button
-                type="button"
-                onClick={() => { setStep('welcome'); setPassword(''); setError(''); }}
-                className="w-full text-center text-xs font-bold text-muted hover:text-ink transition-colors"
-              >
-                Back
-              </button>
-            </form>
-
-            {!passwordless && (
-              <p className="text-[10px] font-bold text-muted/30 text-center">
-                Default passcode: <span className="font-mono text-muted/50">admin123</span>
-              </p>
+            {isLocked && (
+              <div className="mb-4 flex items-center gap-2 rounded-2xl border border-amber-100 bg-amber-50 px-4 py-3 text-xs font-bold text-amber-700">
+                <AlertCircle className="h-4 w-4 shrink-0" />
+                Session locked due to inactivity. Sign in again to continue.
+              </div>
             )}
-          </motion.div>
-        )}
-      </AnimatePresence>
+
+            {error && (
+              <div className="mb-4 flex items-center gap-2 rounded-2xl border border-red-100 bg-red-50 px-4 py-3 text-xs font-bold text-red-600">
+                <AlertCircle className="h-4 w-4 shrink-0" />
+                {error}
+              </div>
+            )}
+
+            {success && (
+              <div className="mb-4 flex items-center gap-2 rounded-2xl border border-green-100 bg-green-50 px-4 py-3 text-xs font-bold text-green-600">
+                <CheckCircle2 className="h-4 w-4 shrink-0" />
+                {success}
+              </div>
+            )}
+
+            <AnimatePresence mode="wait">
+              {tab === 'signin' ? (
+                <motion.form
+                  key="signin"
+                  initial={{ opacity: 0, y: 12 }}
+                  animate={{ opacity: 1, y: 0 }}
+                  exit={{ opacity: 0, y: -12 }}
+                  onSubmit={handleSignIn}
+                  className="space-y-5"
+                >
+                  <PanelTitle title="Welcome back" text="Use your approved account to enter the workspace." />
+
+                  <Field label="Email">
+                    <input
+                      type="email"
+                      value={signinForm.email}
+                      onChange={e => { setSigninForm({ ...signinForm, email: e.target.value }); setError(''); }}
+                      placeholder="name@company.com"
+                      className={inputClass}
+                      autoFocus
+                    />
+                  </Field>
+
+                  <Field label="Password">
+                    <div className="relative">
+                      <input
+                        type={showSigninPassword ? 'text' : 'password'}
+                        value={signinForm.password}
+                        onChange={e => { setSigninForm({ ...signinForm, password: e.target.value }); setError(''); }}
+                        placeholder="Enter your password"
+                        className={`${inputClass} pr-12`}
+                      />
+                      <button
+                        type="button"
+                        onClick={() => setShowSigninPassword(value => !value)}
+                        className="absolute right-4 top-1/2 -translate-y-1/2 text-muted transition-colors hover:text-ink"
+                      >
+                        {showSigninPassword ? <EyeOff className="h-4 w-4" /> : <Eye className="h-4 w-4" />}
+                      </button>
+                    </div>
+                  </Field>
+
+                  {isPendingEmail && (
+                    <p className="text-[11px] font-bold text-amber-600">
+                      This email already has a pending approval request.
+                    </p>
+                  )}
+
+                  <button
+                    type="submit"
+                    disabled={loading || !signinForm.email.trim() || !signinForm.password.trim()}
+                    className="flex w-full items-center justify-center gap-2 rounded-2xl bg-ink px-5 py-4 text-sm font-black uppercase tracking-[0.24em] text-white transition-all hover:bg-ink/90 disabled:opacity-40"
+                  >
+                    <span>{loading ? 'Signing In...' : 'Sign In'}</span>
+                    <ArrowRight className="h-4 w-4" />
+                  </button>
+                </motion.form>
+              ) : (
+                <motion.form
+                  key="signup"
+                  initial={{ opacity: 0, y: 12 }}
+                  animate={{ opacity: 1, y: 0 }}
+                  exit={{ opacity: 0, y: -12 }}
+                  onSubmit={handleSignUp}
+                  className="space-y-5"
+                >
+                  <PanelTitle title="Request access" text="New accounts stay pending until you approve them from the master workspace." />
+
+                  <div className="grid gap-4 sm:grid-cols-2">
+                    <Field label="Full Name">
+                      <input
+                        type="text"
+                        value={signupForm.name}
+                        onChange={e => setSignupForm({ ...signupForm, name: e.target.value })}
+                        placeholder="Full name"
+                        className={inputClass}
+                      />
+                    </Field>
+                    <Field label="Email">
+                      <input
+                        type="email"
+                        value={signupForm.email}
+                        onChange={e => setSignupForm({ ...signupForm, email: e.target.value })}
+                        placeholder="name@company.com"
+                        className={inputClass}
+                      />
+                    </Field>
+                    <Field label="Password">
+                      <div className="relative">
+                        <input
+                          type={showSignupPassword ? 'text' : 'password'}
+                          value={signupForm.password}
+                          onChange={e => setSignupForm({ ...signupForm, password: e.target.value })}
+                          placeholder="Create password"
+                          className={`${inputClass} pr-12`}
+                        />
+                        <button
+                          type="button"
+                          onClick={() => setShowSignupPassword(value => !value)}
+                          className="absolute right-4 top-1/2 -translate-y-1/2 text-muted transition-colors hover:text-ink"
+                        >
+                          {showSignupPassword ? <EyeOff className="h-4 w-4" /> : <Eye className="h-4 w-4" />}
+                        </button>
+                      </div>
+                    </Field>
+                    <Field label="Team">
+                      <select
+                        value={signupForm.team}
+                        onChange={e => setSignupForm({ ...signupForm, team: e.target.value })}
+                        className={inputClass}
+                      >
+                        {(settings.teams || []).map(team => <option key={team} value={team}>{team}</option>)}
+                      </select>
+                    </Field>
+                    <Field label="Office">
+                      <input
+                        type="text"
+                        value={signupForm.office}
+                        onChange={e => setSignupForm({ ...signupForm, office: e.target.value })}
+                        placeholder="Cairo HQ"
+                        className={inputClass}
+                      />
+                    </Field>
+                    <Field label="Country">
+                      <input
+                        type="text"
+                        value={signupForm.country}
+                        onChange={e => setSignupForm({ ...signupForm, country: e.target.value.toUpperCase() })}
+                        placeholder="EG"
+                        maxLength={4}
+                        className={inputClass}
+                      />
+                    </Field>
+                  </div>
+
+                  <button
+                    type="submit"
+                    disabled={loading || !signupForm.name.trim() || !signupForm.email.trim() || !signupForm.password.trim()}
+                    className="flex w-full items-center justify-center gap-2 rounded-2xl bg-citrus px-5 py-4 text-sm font-black uppercase tracking-[0.24em] text-ink transition-all hover:brightness-95 disabled:opacity-40"
+                  >
+                    <span>{loading ? 'Sending Request...' : 'Send Access Request'}</span>
+                    <ArrowRight className="h-4 w-4" />
+                  </button>
+                </motion.form>
+              )}
+            </AnimatePresence>
+          </div>
+        </div>
+      </div>
     </div>
   );
 }
+
+function AuthTabButton({ active, icon, label, onClick }: { active: boolean; icon: React.ReactNode; label: string; onClick: () => void }) {
+  return (
+    <button
+      type="button"
+      onClick={onClick}
+      className={`flex flex-1 items-center justify-center gap-2 rounded-xl px-4 py-3 text-xs font-black uppercase tracking-[0.2em] transition-all ${
+        active ? 'bg-white text-ink shadow-sm' : 'text-muted hover:text-ink'
+      }`}
+    >
+      {icon}
+      <span>{label}</span>
+    </button>
+  );
+}
+
+function PanelTitle({ title, text }: { title: string; text: string }) {
+  return (
+    <div className="space-y-2 pb-1">
+      <h2 className="relaxed-title text-2xl font-black text-ink">{title}</h2>
+      <p className="text-sm font-medium leading-6 text-muted">{text}</p>
+    </div>
+  );
+}
+
+function Field({ label, children }: { label: string; children: React.ReactNode }) {
+  return (
+    <label className="block space-y-2">
+      <span className="text-[10px] font-black uppercase tracking-[0.2em] text-muted">{label}</span>
+      {children}
+    </label>
+  );
+}
+
+function FeatureCard({ icon, title, text }: { icon: React.ReactNode; title: string; text: string }) {
+  return (
+    <div className="rounded-3xl border border-white/10 bg-white/5 p-4 backdrop-blur-sm">
+      <div className="mb-3 flex h-9 w-9 items-center justify-center rounded-xl bg-white/10 text-citrus">
+        {icon}
+      </div>
+      <h3 className="text-sm font-black text-white">{title}</h3>
+      <p className="mt-1 text-xs font-medium leading-5 text-white/65">{text}</p>
+    </div>
+  );
+}
+
+const inputClass = 'w-full rounded-2xl border border-dawn bg-stone/40 px-4 py-3 text-sm font-bold text-ink outline-none transition-all placeholder:text-muted/45 focus:border-citrus';

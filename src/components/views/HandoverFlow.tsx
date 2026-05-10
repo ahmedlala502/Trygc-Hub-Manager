@@ -19,7 +19,7 @@ interface HandoverFlowProps {
 }
 
 export default function HandoverFlow({ handovers, tasks, stats, aiInteractions }: HandoverFlowProps) {
-  const { addHandover, updateHandover, offices, settings, user, currentTeam, canUseFeature, isWidgetEnabled } = useLocalData();
+  const { addHandover, updateHandover, offices, settings, user, members, currentTeam, canUseFeature, isWidgetEnabled } = useLocalData();
   const [step, setStep] = useState(1);
   const [isAnalyzing, setIsAnalyzing] = useState(false);
   const [searchTerm, setSearchTerm] = useState('');
@@ -36,11 +36,36 @@ export default function HandoverFlow({ handovers, tasks, stats, aiInteractions }
     toOffice: 'Cairo HQ',
     team: teamOptions[0],
     country: user.country || 'EG',
-    outgoing: 'Ahmed Essmat',
+    outgoing: user.name,
     incoming: '',
     watchouts: '',
     taskIds: []
   });
+
+  const assignableMembers = useMemo(() => {
+    const pool = members.filter(member => !newHo.team || member.team === newHo.team);
+    const deduped = new Map<string, typeof pool[number]>();
+
+    pool.forEach(member => {
+      if (!deduped.has(member.name)) deduped.set(member.name, member);
+    });
+
+    if (user.name && !deduped.has(user.name)) {
+      deduped.set(user.name, {
+        id: 'current-user',
+        name: user.name,
+        team: newHo.team || user.team || teamOptions[0],
+        office: user.office,
+        country: user.country,
+        role: user.role,
+        tasksCompleted: 0,
+        handoversOut: 0,
+        onTime: 0,
+      });
+    }
+
+    return Array.from(deduped.values()).sort((a, b) => a.name.localeCompare(b.name));
+  }, [members, newHo.team, teamOptions, user]);
 
   const activeTasks = useMemo(() => tasks.filter(t => newHo.taskIds?.includes(t.id)), [tasks, newHo.taskIds]);
 
@@ -308,6 +333,12 @@ export default function HandoverFlow({ handovers, tasks, stats, aiInteractions }
                         {[...new Set([newHo.fromOffice, ...offices.map(office => office.name)])].filter(Boolean).map(office => <option key={office}>{office}</option>)}
                       </select>
                     </div>
+                    <div>
+                      <label className="text-[9px] font-bold text-muted mb-2 block uppercase">Outgoing Lead</label>
+                      <select value={newHo.outgoing || user.name} onChange={(e) => setNewHo({ ...newHo, outgoing: e.target.value })} className="w-full bg-white border border-dawn rounded-xl px-4 py-3 text-sm font-bold focus:outline-none">
+                        {assignableMembers.map(member => <option key={member.id} value={member.name}>{member.name} - {member.role || 'Viewer'}</option>)}
+                      </select>
+                    </div>
                   </div>
                 </div>
                 <div className="space-y-6">
@@ -323,6 +354,13 @@ export default function HandoverFlow({ handovers, tasks, stats, aiInteractions }
                       <label className="text-[9px] font-bold text-white/50 mb-2 block uppercase">Incoming Hub</label>
                       <select value={newHo.toOffice || offices[1]?.name || offices[0]?.name || ''} onChange={(e) => setNewHo({ ...newHo, toOffice: e.target.value })} className="w-full bg-white/10 border border-white/20 rounded-xl px-4 py-3 text-sm font-bold focus:outline-none text-white">
                         {[...new Set([newHo.toOffice, ...offices.map(office => office.name)])].filter(Boolean).map(office => <option key={office} className="text-ink">{office}</option>)}
+                      </select>
+                    </div>
+                    <div>
+                      <label className="text-[9px] font-bold text-white/50 mb-2 block uppercase">Incoming Lead</label>
+                      <select value={newHo.incoming || ''} onChange={(e) => setNewHo({ ...newHo, incoming: e.target.value })} className="w-full bg-white/10 border border-white/20 rounded-xl px-4 py-3 text-sm font-bold focus:outline-none text-white">
+                        <option value="" className="text-ink">Select receiver</option>
+                        {assignableMembers.map(member => <option key={member.id} value={member.name} className="text-ink">{member.name} - {member.role || 'Viewer'}</option>)}
                       </select>
                     </div>
                   </div>
@@ -470,7 +508,18 @@ export default function HandoverFlow({ handovers, tasks, stats, aiInteractions }
                       <Users className="w-5 h-5 text-citrus shrink-0" />
                       <div>
                         <span className="block text-[10px] font-black uppercase tracking-widest text-ink mb-1">Incoming Lead</span>
-                        <input type="text" placeholder="Add receiver (optional)" value={newHo.incoming || ''} onChange={(e) => setNewHo({ ...newHo, incoming: e.target.value })} className="bg-transparent border-none p-0 text-sm font-bold text-ink focus:outline-none placeholder:text-muted/30" />
+                        <select
+                          value={newHo.incoming || ''}
+                          onChange={(e) => setNewHo({ ...newHo, incoming: e.target.value })}
+                          className="min-w-[240px] bg-transparent border-none p-0 text-sm font-bold text-ink focus:outline-none"
+                        >
+                          <option value="">Select receiver</option>
+                          {assignableMembers.map(member => (
+                            <option key={member.id} value={member.name}>
+                              {member.name} - {member.role || 'Viewer'}
+                            </option>
+                          ))}
+                        </select>
                       </div>
                     </div>
                     <div className="space-y-2">

@@ -105,7 +105,7 @@ const PRESET_ROLES = [
 ];
 
 export default function Settings({ activeTab: controlledTab, setActiveTab: setControlledTab }: SettingsProps) {
-  const { user, settings, members, tasks, handovers, auditLogs, updateSettings, updateUser, addMember, updateMember, deleteMember, exportWorkspace, importData, resetData, isMasterAdmin, lock, logout } = useLocalData();
+  const { user, settings, members, pendingSignups, tasks, handovers, auditLogs, updateSettings, updateUser, addMember, updateMember, deleteMember, approveSignup, rejectSignup, exportWorkspace, importData, resetData, isMasterAdmin, lock, logout } = useLocalData();
   const [internalTab, setInternalTab] = useState(controlledTab || 'general');
   const activeTab = controlledTab || internalTab;
   const setActiveTab = setControlledTab || setInternalTab;
@@ -122,7 +122,7 @@ export default function Settings({ activeTab: controlledTab, setActiveTab: setCo
   const isAdmin = isAdminUser(user.role);
 
   // ── User Management state ─────────────────────────────────────────────────
-  const emptyMember = { name: '', role: PRESET_ROLES[0], team: settings.teams?.[0] || 'Operations Team', office: user.office, country: user.country };
+  const emptyMember = { name: '', role: PRESET_ROLES[0], team: settings.teams?.[0] || 'Operations Team', office: user.office, country: user.country, email: '', password: '' };
   const [showAddMember, setShowAddMember] = useState(false);
   const [newMemberForm, setNewMemberForm] = useState(emptyMember);
   const [editingMemberId, setEditingMemberId] = useState<string | null>(null);
@@ -942,6 +942,61 @@ export default function Settings({ activeTab: controlledTab, setActiveTab: setCo
                   </div>
                 )}
 
+                {pendingSignups.length > 0 && (
+                  <div className="rounded-3xl border border-amber-200 bg-amber-50/70 p-5 space-y-4">
+                    <div className="flex items-center justify-between gap-4">
+                      <div>
+                        <p className="text-[10px] font-black uppercase tracking-[0.24em] text-amber-700">Pending Access Requests</p>
+                        <p className="text-sm font-medium text-amber-900/80 mt-1">
+                          New sign-ups wait here until you approve or reject them.
+                        </p>
+                      </div>
+                      <div className="px-3 py-2 rounded-2xl bg-white text-amber-700 text-xs font-black uppercase tracking-widest">
+                        {pendingSignups.length} pending
+                      </div>
+                    </div>
+
+                    <div className="space-y-3">
+                      {pendingSignups.map(request => (
+                        <div key={request.id} className="flex items-center gap-4 rounded-2xl border border-amber-200 bg-white px-4 py-4">
+                          <div className="w-10 h-10 rounded-xl bg-amber-100 text-amber-700 flex items-center justify-center text-sm font-black shrink-0">
+                            {request.name.split(' ').map(n => n[0]).join('').slice(0, 2).toUpperCase()}
+                          </div>
+                          <div className="flex-1 min-w-0">
+                            <div className="flex items-center gap-2">
+                              <span className="text-sm font-black text-ink truncate">{request.name}</span>
+                              <span className="text-[8px] font-black uppercase tracking-widest px-1.5 py-0.5 rounded bg-amber-100 text-amber-700">Pending</span>
+                            </div>
+                            <div className="flex flex-wrap items-center gap-2 text-[9px] font-bold uppercase tracking-widest text-muted mt-1">
+                              <span>{request.email}</span>
+                              <span className="text-muted/30">·</span>
+                              <span>{request.team}</span>
+                              <span className="text-muted/30">·</span>
+                              <span>{request.office}</span>
+                              <span className="text-muted/30">·</span>
+                              <span>{request.country}</span>
+                            </div>
+                          </div>
+                          <div className="flex items-center gap-2 shrink-0">
+                            <button
+                              onClick={() => approveSignup(request.id)}
+                              className="px-3 py-2 rounded-xl bg-ink text-white text-[10px] font-black uppercase tracking-widest hover:scale-[1.02] transition-all"
+                            >
+                              Approve
+                            </button>
+                            <button
+                              onClick={() => rejectSignup(request.id)}
+                              className="px-3 py-2 rounded-xl bg-white border border-dawn text-[10px] font-black uppercase tracking-widest text-muted hover:text-red-500 hover:border-red-200 transition-all"
+                            >
+                              Reject
+                            </button>
+                          </div>
+                        </div>
+                      ))}
+                    </div>
+                  </div>
+                )}
+
                 {/* Add member form */}
                 {showAddMember && (
                   <div className="p-6 bg-citrus/5 border-2 border-citrus/20 rounded-3xl space-y-5">
@@ -952,6 +1007,9 @@ export default function Settings({ activeTab: controlledTab, setActiveTab: setCo
                     <div className="grid grid-cols-2 gap-4">
                       <Field label="Full Name">
                         <input className={inputClass} value={newMemberForm.name} onChange={e => setNewMemberForm(f => ({ ...f, name: e.target.value }))} placeholder="e.g. Sara Ahmed" />
+                      </Field>
+                      <Field label="Email">
+                        <input className={inputClass} type="email" value={newMemberForm.email} onChange={e => setNewMemberForm(f => ({ ...f, email: e.target.value }))} placeholder="name@company.com" />
                       </Field>
                       <Field label="Role">
                         <div className="flex gap-2">
@@ -980,6 +1038,9 @@ export default function Settings({ activeTab: controlledTab, setActiveTab: setCo
                       </Field>
                       <Field label="Country Code">
                         <input className={inputClass} value={newMemberForm.country} onChange={e => setNewMemberForm(f => ({ ...f, country: e.target.value }))} placeholder="EG / KSA / UAE…" maxLength={4} />
+                      </Field>
+                      <Field label="Temporary Password">
+                        <input className={inputClass} type="password" value={newMemberForm.password} onChange={e => setNewMemberForm(f => ({ ...f, password: e.target.value }))} placeholder="Set first password" />
                       </Field>
                     </div>
                     <div className="flex gap-3">

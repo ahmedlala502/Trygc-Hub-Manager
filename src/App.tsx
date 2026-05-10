@@ -132,7 +132,7 @@ export default function App() {
   }
 
   if (!auth.isAuthenticated) {
-    return <Login onLogin={login} isLocked={auth.isLocked} passwordless={settings.authMode === 'none'} />;
+    return <Login onLogin={login} isLocked={auth.isLocked} />;
   }
 
   const renderContent = () => {

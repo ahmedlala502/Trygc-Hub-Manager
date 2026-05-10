@@ -103,8 +103,28 @@ export interface User {
   office: string;
   country: string;
   email: string;
+  team?: string;
   password?: string;
   isSuperAdmin?: boolean;
+}
+
+export interface WorkspaceUser extends User {
+  id: string;
+  team: string;
+  status: 'active';
+  createdAt: string;
+  approvedAt?: string;
+}
+
+export interface PendingSignupRequest {
+  id: string;
+  name: string;
+  email: string;
+  password: string;
+  team: string;
+  office: string;
+  country: string;
+  requestedAt: string;
 }
 
 export interface AuthState {

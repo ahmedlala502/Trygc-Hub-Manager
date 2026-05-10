@@ -1,4 +1,4 @@
-import { Handover, Member, Office, Priority, Shift, Status, Task, User, AuthState } from '../types';
+import { AuthState, Handover, Member, Office, PendingSignupRequest, Priority, Shift, Status, Task, User, WorkspaceUser } from '../types';
 import { INITIAL_HANDOVERS, INITIAL_MEMBERS, INITIAL_TASKS, INITIAL_USER, MASTER_ADMIN_EMAIL, MASTER_ADMIN_PASSWORD, OFFICES, TEAMS, SUPER_ADMIN_PASSWORD } from '../constants';
 import { DEFAULT_ROLE_PERMISSIONS, DEFAULT_WIDGET_CONFIG, RolePermissionMap, WidgetConfig } from './accessControl';
 
@@ -46,6 +46,8 @@ export interface AuditEvent {
 
 export interface LocalWorkspace {
   user: User;
+  users: WorkspaceUser[];
+  pendingSignups: PendingSignupRequest[];
   tasks: Task[];
   handovers: Handover[];
   offices: Office[];
@@ -106,17 +108,94 @@ function migrateMasterUser(user?: User): User {
   };
 }
 
+function buildUserFromMember(member: Member): WorkspaceUser {
+  const now = new Date().toISOString();
+  const emailBase = member.name.toLowerCase().replace(/[^a-z0-9]+/g, '.').replace(/^\.+|\.+$/g, '');
+  return {
+    id: createId('user'),
+    name: member.name,
+    role: member.role || 'Viewer',
+    office: member.office,
+    country: member.country,
+    email: `${emailBase || 'user'}@trygc.local`,
+    password: '',
+    team: member.team,
+    status: 'active',
+    createdAt: now,
+  };
+}
+
+function buildMasterAccount(): WorkspaceUser {
+  const now = new Date().toISOString();
+  return {
+    id: 'user-master',
+    name: INITIAL_USER.name,
+    role: 'Super Admin',
+    office: INITIAL_USER.office,
+    country: INITIAL_USER.country,
+    email: MASTER_ADMIN_EMAIL,
+    password: MASTER_ADMIN_PASSWORD,
+    team: INITIAL_MEMBERS.find(member => member.name === INITIAL_USER.name)?.team || TEAMS[0],
+    status: 'active',
+    createdAt: now,
+    approvedAt: now,
+    isSuperAdmin: true,
+  };
+}
+
+function migrateWorkspaceUsers(users: WorkspaceUser[] | undefined, members: Member[]): WorkspaceUser[] {
+  const seededUsers: WorkspaceUser[] = (users || [])
+    .filter(Boolean)
+    .map(user => ({
+      ...user,
+      role: user.role || 'Viewer',
+      office: user.office || INITIAL_USER.office,
+      country: user.country || INITIAL_USER.country,
+      team: user.team || members.find(member => member.name === user.name)?.team || TEAMS[0],
+      status: 'active' as const,
+      createdAt: user.createdAt || new Date().toISOString(),
+      approvedAt: user.approvedAt || user.createdAt || new Date().toISOString(),
+      isSuperAdmin: user.email?.toLowerCase() === MASTER_ADMIN_EMAIL ? true : user.isSuperAdmin,
+      password: user.email?.toLowerCase() === MASTER_ADMIN_EMAIL ? MASTER_ADMIN_PASSWORD : (user.password || ''),
+    }));
+
+  const masterAccount = buildMasterAccount();
+  const masterIndex = seededUsers.findIndex(user => user.email?.toLowerCase() === MASTER_ADMIN_EMAIL);
+
+  if (masterIndex >= 0) {
+    seededUsers[masterIndex] = { ...seededUsers[masterIndex], ...masterAccount };
+  } else {
+    seededUsers.unshift(masterAccount);
+  }
+
+  return seededUsers.length ? seededUsers : [masterAccount, ...members.filter(member => member.name !== INITIAL_USER.name).map(buildUserFromMember)];
+}
+
+function migratePendingSignups(pendingSignups?: PendingSignupRequest[]): PendingSignupRequest[] {
+  return (pendingSignups || []).filter(Boolean).map(request => ({
+    ...request,
+    requestedAt: request.requestedAt || new Date().toISOString(),
+    team: request.team || TEAMS[0],
+    office: request.office || INITIAL_USER.office,
+    country: request.country || INITIAL_USER.country,
+  }));
+}
+
 export function importWorkspace(jsonData: string): LocalWorkspace | null {
   try {
     const data = JSON.parse(jsonData) as Partial<LocalWorkspace>;
     if (!data.tasks && !data.members && !data.offices) return null;
+    const seed = createWorkspace();
+    const members = data.members || seed.members;
     return {
       user: migrateMasterUser(data.user || INITIAL_USER),
+      users: migrateWorkspaceUsers(data.users, members),
+      pendingSignups: migratePendingSignups(data.pendingSignups),
       tasks: data.tasks || [],
       handovers: data.handovers || [],
       offices: data.offices || [],
-      members: data.members || [],
-      settings: migrateSettings({ ...createWorkspace().settings, ...(data.settings || {}) }),
+      members,
+      settings: migrateSettings({ ...seed.settings, ...(data.settings || {}) }),
       auditLogs: data.auditLogs || [],
     };
   } catch {
@@ -125,8 +204,17 @@ export function importWorkspace(jsonData: string): LocalWorkspace | null {
 }
 
 export function createWorkspace(): LocalWorkspace {
+  const seededUsers = [
+    buildMasterAccount(),
+    ...INITIAL_MEMBERS
+      .filter(member => member.name !== INITIAL_USER.name)
+      .map(buildUserFromMember),
+  ];
+
   return {
     user: INITIAL_USER,
+    users: seededUsers,
+    pendingSignups: [],
     tasks: INITIAL_TASKS,
     handovers: INITIAL_HANDOVERS,
     offices: OFFICES,
@@ -137,7 +225,7 @@ export function createWorkspace(): LocalWorkspace {
       teams: TEAMS,
       locations: ['Cairo', 'Riyadh', 'Dubai', 'Kuwait'],
       autoBridge: true,
-      authMode: 'none',
+      authMode: 'local',
       minPasscodeLength: 6,
       sessionLockMinutes: 60,
       aiProvider: 'gemini',
@@ -172,12 +260,15 @@ export function loadWorkspace(): LocalWorkspace {
     if (!raw) return createWorkspace();
     const parsed = JSON.parse(raw) as Partial<LocalWorkspace>;
     const seed = createWorkspace();
+    const members = parsed.members?.length ? parsed.members : seed.members;
     return {
       user: migrateMasterUser(parsed.user || seed.user),
+      users: migrateWorkspaceUsers(parsed.users, members),
+      pendingSignups: migratePendingSignups(parsed.pendingSignups),
       tasks: parsed.tasks?.length ? parsed.tasks : seed.tasks,
       handovers: parsed.handovers || seed.handovers,
       offices: parsed.offices?.length ? parsed.offices : seed.offices,
-      members: parsed.members?.length ? parsed.members : seed.members,
+      members,
       settings: migrateSettings({ ...seed.settings, ...(parsed.settings || {}) }),
       auditLogs: parsed.auditLogs || [],
     };
@@ -193,6 +284,7 @@ function migrateSettings(settings: WorkspaceSettings): WorkspaceSettings {
 
   return {
     ...settings,
+    authMode: settings.authMode === 'none' ? 'local' : (settings.authMode || 'local'),
     teams,
     featureFlags: {
       ...settings.featureFlags,
