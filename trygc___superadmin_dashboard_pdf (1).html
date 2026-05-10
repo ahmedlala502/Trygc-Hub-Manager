@@ -1,0 +1,872 @@
+<!DOCTYPE html>
+<html lang="en" class="light">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Operations Dashboard</title>
+    <script src="https://cdn.tailwindcss.com"></script>
+    <script>
+        tailwind.config = {
+            darkMode: 'class',
+            theme: {
+                extend: {
+                    colors: {
+                        brand: {
+                            50: '#fff7ed',
+                            100: '#ffedd5',
+                            500: '#f97316',
+                            600: '#ea580c',
+                        },
+                        panel: {
+                            light: '#ffffff',
+                            dark: '#1f2937'
+                        },
+                        bg: {
+                            light: '#f3f4f6',
+                            dark: '#111827'
+                        }
+                    },
+                    fontFamily: {
+                        sans: ['Inter', 'system-ui', 'sans-serif'],
+                    }
+                }
+            }
+        }
+    </script>
+    <style>
+        @import url('https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600;700&display=swap');
+
+        body {
+            font-family: 'Inter', sans-serif;
+            transition: background-color 0.3s, color 0.3s;
+        }
+
+        /* Custom Scrollbar */
+        ::-webkit-scrollbar {
+            width: 6px;
+            height: 6px;
+        }
+        ::-webkit-scrollbar-track {
+            background: transparent;
+        }
+        ::-webkit-scrollbar-thumb {
+            background: #cbd5e1;
+            border-radius: 10px;
+        }
+        .dark ::-webkit-scrollbar-thumb {
+            background: #4b5563;
+        }
+
+        /* Custom Tooltip Styling */
+        #custom-tooltip {
+            position: absolute;
+            z-index: 1000;
+            background-color: rgba(17, 24, 39, 0.95);
+            color: white;
+            padding: 6px 12px;
+            border-radius: 6px;
+            font-size: 0.75rem;
+            font-weight: 500;
+            pointer-events: none;
+            opacity: 0;
+            transition: opacity 0.2s ease-in-out, transform 0.2s ease-in-out;
+            transform: translateY(5px);
+            white-space: nowrap;
+            box-shadow: 0 4px 6px -1px rgba(0, 0, 0, 0.1), 0 2px 4px -1px rgba(0, 0, 0, 0.06);
+            backdrop-filter: blur(4px);
+        }
+        .dark #custom-tooltip {
+            background-color: rgba(243, 244, 246, 0.95);
+            color: #111827;
+        }
+        #custom-tooltip.show {
+            opacity: 1;
+            transform: translateY(0);
+        }
+
+        /* Donut Charts */
+        .donut-chart {
+            width: 80px;
+            height: 80px;
+            border-radius: 50%;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            position: relative;
+        }
+        .donut-chart::before {
+            content: "";
+            position: absolute;
+            width: 64px;
+            height: 64px;
+            border-radius: 50%;
+            background-color: white;
+            transition: background-color 0.3s;
+        }
+        .dark .donut-chart::before {
+            background-color: #1f2937;
+        }
+        .donut-inner {
+            position: relative;
+            z-index: 10;
+            font-weight: bold;
+            font-size: 1.125rem;
+        }
+
+        /* Animations */
+        @keyframes spin-slow {
+            from { transform: rotate(0deg); }
+            to { transform: rotate(360deg); }
+        }
+        .animate-spin-once {
+            animation: spin-slow 0.5s ease-in-out;
+        }
+        
+        .value-update {
+            animation: pulse-color 0.5s ease-out;
+        }
+        @keyframes pulse-color {
+            0% { color: #f97316; transform: scale(1.05); }
+            100% { color: inherit; transform: scale(1); }
+        }
+    </style>
+</head>
+<body class="bg-bg-light text-gray-800 dark:bg-bg-dark dark:text-gray-200 h-screen overflow-hidden flex">
+
+    <!-- Tooltip Element -->
+    <div id="custom-tooltip"></div>
+
+    <!-- Sidebar -->
+    <aside class="w-64 bg-white dark:bg-panel-dark border-r border-gray-200 dark:border-gray-800 flex flex-col transition-colors duration-300 z-20 hidden md:flex">
+        <!-- Logo -->
+        <div class="h-20 flex items-center px-6 border-b border-gray-100 dark:border-gray-800 cursor-pointer" data-tooltip="Go to Dashboard Home">
+            <div class="w-8 h-8 rounded-full border-4 border-brand-500 flex items-center justify-center mr-3 relative overflow-hidden">
+                <div class="w-3 h-3 bg-brand-500 rounded-full absolute bottom-0 right-0 transform translate-x-1 translate-y-1"></div>
+            </div>
+            <div>
+                <h1 class="font-bold text-lg tracking-wider dark:text-white">TRYGC</h1>
+                <p class="text-[0.6rem] text-gray-500 tracking-widest uppercase">Super Admin</p>
+            </div>
+        </div>
+
+        <!-- Tagline -->
+        <div class="px-6 py-4 text-[0.65rem] font-bold tracking-widest uppercase text-gray-400">
+            <span class="text-gray-800 dark:text-gray-200">Speak.</span> <span class="text-brand-500">Connect.</span> Impact.
+        </div>
+
+        <!-- Navigation -->
+        <nav class="flex-1 px-4 space-y-1 overflow-y-auto">
+            <a href="#" class="flex items-center px-4 py-3 text-sm font-medium rounded-lg bg-brand-50 text-brand-600 dark:bg-gray-800 dark:text-brand-500" data-tooltip="Dashboard Overview">
+                <svg class="w-5 h-5 mr-3" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M4 6a2 2 0 012-2h2a2 2 0 012 2v2a2 2 0 01-2 2H6a2 2 0 01-2-2V6zM14 6a2 2 0 012-2h2a2 2 0 012 2v2a2 2 0 01-2 2h-2a2 2 0 01-2-2V6zM4 16a2 2 0 012-2h2a2 2 0 012 2v2a2 2 0 01-2 2H6a2 2 0 01-2-2v-2zM14 16a2 2 0 012-2h2a2 2 0 012 2v2a2 2 0 01-2 2h-2a2 2 0 01-2-2v-2z"></path></svg>
+                Home
+            </a>
+            <a href="#" class="flex items-center px-4 py-3 text-sm font-medium rounded-lg text-gray-600 hover:bg-gray-50 dark:text-gray-400 dark:hover:bg-gray-800 transition-colors" data-tooltip="Manage Client Accounts">
+                <svg class="w-5 h-5 mr-3" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M19 21V5a2 2 0 00-2-2H7a2 2 0 00-2 2v16m14 0h2m-2 0h-5m-9 0H3m2 0h5M9 7h1m-1 4h1m4-4h1m-1 4h1m-5 10v-5a1 1 0 011-1h2a1 1 0 011 1v5m-4 0h4"></path></svg>
+                Accounts
+            </a>
+            <a href="#" class="flex items-center justify-between px-4 py-3 text-sm font-medium rounded-lg text-gray-600 hover:bg-gray-50 dark:text-gray-400 dark:hover:bg-gray-800 transition-colors" data-tooltip="Influencer Database">
+                <div class="flex items-center">
+                    <svg class="w-5 h-5 mr-3" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M12 4.354a4 4 0 110 5.292M15 21H3v-1a6 6 0 0112 0v1zm0 0h6v-1a6 6 0 00-9-5.197M13 7a4 4 0 11-8 0 4 4 0 018 0z"></path></svg>
+                    Influencers
+                </div>
+                <span class="bg-red-100 text-red-600 py-0.5 px-2 rounded-full text-xs font-bold dark:bg-red-900/30 dark:text-red-400">670</span>
+            </a>
+
+            <div class="pt-4 pb-2">
+                <p class="px-4 text-[0.65rem] font-bold tracking-widest uppercase text-gray-400">Operations</p>
+            </div>
+            
+            <a href="#" class="flex items-center justify-between px-4 py-3 text-sm font-medium rounded-lg text-gray-600 hover:bg-gray-50 dark:text-gray-400 dark:hover:bg-gray-800 transition-colors" data-tooltip="Active & Past Campaigns">
+                <div class="flex items-center">
+                    <svg class="w-5 h-5 mr-3" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M11 5.882V19.24a1.76 1.76 0 01-3.417.592l-2.147-6.15M18 13a3 3 0 100-6M5.436 13.683A4.001 4.001 0 017 6h1.832c4.1 0 7.625-1.234 9.168-3v14c-1.543-1.766-5.067-3-9.168-3H7a3.988 3.988 0 01-1.564-.317z"></path></svg>
+                    Campaigns
+                </div>
+                <span class="bg-brand-100 text-brand-600 py-0.5 px-2 rounded-full text-xs font-bold dark:bg-brand-900/30 dark:text-brand-400">20</span>
+            </a>
+            <a href="#" class="flex items-center px-4 py-3 text-sm font-medium rounded-lg text-gray-600 hover:bg-gray-50 dark:text-gray-400 dark:hover:bg-gray-800 transition-colors" data-tooltip="Media Coverage Reports">
+                <svg class="w-5 h-5 mr-3" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M19 20H5a2 2 0 01-2-2V6a2 2 0 012-2h10a2 2 0 012 2v1m2 13a2 2 0 01-2-2V7m2 13a2 2 0 002-2V9a2 2 0 00-2-2h-2m-4-3H9M7 16h6M7 8h6v4H7V8z"></path></svg>
+                Coverage
+            </a>
+            <a href="#" class="flex items-center px-4 py-3 text-sm font-medium rounded-lg text-gray-600 hover:bg-gray-50 dark:text-gray-400 dark:hover:bg-gray-800 transition-colors" data-tooltip="Internal Communications">
+                <svg class="w-5 h-5 mr-3" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M8 12h.01M12 12h.01M16 12h.01M21 12c0 4.418-4.03 8-9 8a9.863 9.863 0 01-4.255-.949L3 20l1.395-3.72C3.512 15.042 3 13.574 3 12c0-4.418 4.03-8 9-8s9 3.582 9 8z"></path></svg>
+                Chats
+            </a>
+        </nav>
+
+        <!-- User Profile -->
+        <div class="p-4 border-t border-gray-200 dark:border-gray-800 flex items-center cursor-pointer hover:bg-gray-50 dark:hover:bg-gray-800 transition-colors" data-tooltip="View Profile Settings">
+            <div class="w-10 h-10 rounded-full bg-gray-800 flex items-center justify-center text-white font-bold text-sm mr-3">
+                AE
+            </div>
+            <div class="flex-1 overflow-hidden">
+                <p class="text-sm font-bold text-gray-900 dark:text-white truncate">Ahmed Essmat</p>
+                <p class="text-xs text-gray-500 truncate">Head of Operations</p>
+            </div>
+        </div>
+    </aside>
+
+    <!-- Main Content -->
+    <main class="flex-1 flex flex-col h-screen overflow-hidden relative">
+        
+        <!-- Header -->
+        <header class="h-20 bg-white dark:bg-panel-dark border-b border-gray-200 dark:border-gray-800 flex items-center justify-between px-6 shrink-0 transition-colors duration-300 z-10">
+            <div class="flex items-center">
+                <!-- Mobile Menu Toggle -->
+                <button class="md:hidden mr-4 text-gray-500 hover:text-gray-900 dark:text-gray-400 dark:hover:text-white" data-tooltip="Toggle Menu">
+                    <svg class="w-6 h-6" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M4 6h16M4 12h16M4 18h16"></path></svg>
+                </button>
+                <div>
+                    <h2 class="text-xl font-bold text-gray-900 dark:text-white">Operations Dashboard</h2>
+                    <p class="text-xs text-gray-500 dark:text-gray-400 hidden sm:block">Campaign & influencer intelligence — KSA · UAE · Kuwait · Egypt</p>
+                </div>
+            </div>
+            
+            <div class="flex items-center space-x-2 sm:space-x-3">
+                <button class="hidden sm:flex items-center px-3 py-1.5 text-xs font-medium rounded-full border border-green-200 bg-green-50 text-green-700 dark:bg-green-900/20 dark:border-green-800 dark:text-green-400" data-tooltip="System is connected to live data stream">
+                    <span class="w-2 h-2 rounded-full bg-green-500 mr-2 animate-pulse"></span>
+                    Live Data
+                </button>
+                
+                <button id="refreshBtn" class="p-2 text-gray-500 hover:bg-gray-100 rounded-lg dark:text-gray-400 dark:hover:bg-gray-800 transition-colors flex items-center" data-tooltip="Refresh Dashboard Data">
+                    <svg class="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M4 4v5h.582m15.356 2A8.001 8.001 0 004.582 9m0 0H9m11 11v-5h-.581m0 0a8.003 8.003 0 01-15.357-2m15.357 2H15"></path></svg>
+                    <span class="ml-2 text-sm font-medium hidden lg:block">Refresh</span>
+                </button>
+
+                <button class="p-2 text-gray-500 hover:bg-gray-100 rounded-lg dark:text-gray-400 dark:hover:bg-gray-800 transition-colors flex items-center" data-tooltip="Filter Dashboard View">
+                    <svg class="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M3 4a1 1 0 011-1h16a1 1 0 011 1v2.586a1 1 0 01-.293.707l-6.414 6.414a1 1 0 00-.293.707V17l-4 4v-6.586a1 1 0 00-.293-.707L3.293 7.293A1 1 0 013 6.586V4z"></path></svg>
+                    <span class="ml-2 text-sm font-medium hidden lg:block">Filter</span>
+                </button>
+
+                <button class="flex items-center px-3 py-1.5 text-sm font-medium rounded-lg bg-brand-500 text-white hover:bg-brand-600 transition-colors shadow-sm" data-tooltip="Download current view as PDF">
+                    <svg class="w-4 h-4 mr-2" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M4 16v1a3 3 0 003 3h10a3 3 0 003-3v-1m-4-4l-4 4m0 0l-4-4m4 4V4"></path></svg>
+                    <span class="hidden sm:block">Export PDF</span>
+                </button>
+
+                <div class="h-6 w-px bg-gray-300 dark:bg-gray-700 mx-1"></div>
+
+                <button class="text-xs font-bold text-gray-500 hover:text-gray-900 dark:text-gray-400 dark:hover:text-white px-2" data-tooltip="Switch Language">
+                    AR / EN
+                </button>
+
+                <button id="themeToggle" class="p-2 text-gray-500 hover:bg-gray-100 rounded-full dark:text-gray-400 dark:hover:bg-gray-800 transition-colors" data-tooltip="Toggle Dark/Light Mode">
+                    <!-- Sun Icon (Hidden in Light Mode) -->
+                    <svg id="sunIcon" class="w-5 h-5 hidden dark:block" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M12 3v1m0 16v1m9-9h-1M4 12H3m15.364 6.364l-.707-.707M6.343 6.343l-.707-.707m12.728 0l-.707.707M6.343 17.657l-.707.707M16 12a4 4 0 11-8 0 4 4 0 018 0z"></path></svg>
+                    <!-- Moon Icon (Hidden in Dark Mode) -->
+                    <svg id="moonIcon" class="w-5 h-5 block dark:hidden" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M20.354 15.354A9 9 0 018.646 3.646 9.003 9.003 0 0012 21a9.003 9.003 0 008.354-5.646z"></path></svg>
+                </button>
+            </div>
+        </header>
+
+        <!-- Dashboard Scrollable Area -->
+        <div class="flex-1 overflow-y-auto p-4 sm:p-6 space-y-6">
+            
+            <!-- Top KPIs -->
+            <div class="grid grid-cols-2 md:grid-cols-3 lg:grid-cols-5 gap-4">
+                <div class="bg-white dark:bg-panel-dark rounded-xl p-4 border border-gray-100 dark:border-gray-800 shadow-sm hover:shadow-md transition-shadow cursor-pointer" data-tooltip="Total number of campaigns across all markets">
+                    <p class="text-xs text-gray-500 dark:text-gray-400 font-semibold uppercase tracking-wider mb-1">All Campaigns</p>
+                    <p class="text-3xl font-bold text-gray-900 dark:text-white dynamic-val">4,800</p>
+                    <p class="text-xs text-gray-400 mt-1">All markets combined</p>
+                </div>
+                <div class="bg-white dark:bg-panel-dark rounded-xl p-4 border border-gray-100 dark:border-gray-800 shadow-sm hover:shadow-md transition-shadow cursor-pointer" data-tooltip="Campaigns currently active and running">
+                    <p class="text-xs text-green-600 dark:text-green-400 font-semibold uppercase tracking-wider mb-1 flex items-center">
+                        <span class="w-1.5 h-1.5 rounded-full bg-green-500 mr-1.5"></span> Active Now
+                    </p>
+                    <p class="text-3xl font-bold text-green-600 dark:text-green-400 dynamic-val">3,020</p>
+                    <p class="text-xs text-gray-400 mt-1">Currently running</p>
+                </div>
+                <div class="bg-white dark:bg-panel-dark rounded-xl p-4 border border-gray-100 dark:border-gray-800 shadow-sm hover:shadow-md transition-shadow cursor-pointer" data-tooltip="Campaigns waiting for admin approval">
+                    <p class="text-xs text-brand-500 font-semibold uppercase tracking-wider mb-1">Approval Queue</p>
+                    <p class="text-3xl font-bold text-brand-500 dynamic-val">20</p>
+                    <p class="text-xs text-gray-400 mt-1">Pending review</p>
+                </div>
+                <div class="bg-white dark:bg-panel-dark rounded-xl p-4 border border-red-100 dark:border-red-900/30 shadow-sm hover:shadow-md transition-shadow cursor-pointer" data-tooltip="Campaigns falling behind target metrics">
+                    <p class="text-xs text-red-500 font-semibold uppercase tracking-wider mb-1">At Risk</p>
+                    <p class="text-3xl font-bold text-red-500 dynamic-val">20</p>
+                    <p class="text-xs text-gray-400 mt-1">Below 70% coverage</p>
+                </div>
+                <div class="bg-white dark:bg-panel-dark rounded-xl p-4 border border-gray-100 dark:border-gray-800 shadow-sm hover:shadow-md transition-shadow cursor-pointer" data-tooltip="Total units needed to meet overall targets">
+                    <p class="text-xs text-purple-600 dark:text-purple-400 font-semibold uppercase tracking-wider mb-1">Coverage Gap</p>
+                    <p class="text-3xl font-bold text-purple-600 dark:text-purple-400 dynamic-val">3,205</p>
+                    <p class="text-xs text-gray-400 mt-1">Units still needed</p>
+                </div>
+            </div>
+
+            <!-- Campaigns Section -->
+            <section class="bg-white dark:bg-panel-dark rounded-xl border border-gray-100 dark:border-gray-800 shadow-sm overflow-hidden">
+                <div class="px-6 py-4 border-b border-gray-100 dark:border-gray-800 flex justify-between items-center bg-gray-50/50 dark:bg-gray-800/20">
+                    <h3 class="font-bold text-gray-900 dark:text-white flex items-center">
+                        <span class="w-1 h-4 bg-brand-500 rounded-full mr-2"></span> CAMPAIGNS
+                    </h3>
+                    <a href="#" class="text-sm text-brand-500 hover:text-brand-600 font-medium" data-tooltip="View full campaigns list">View all ›</a>
+                </div>
+                
+                <div class="grid grid-cols-1 lg:grid-cols-12 gap-0 divide-y lg:divide-y-0 lg:divide-x divide-gray-100 dark:divide-gray-800">
+                    
+                    <!-- Status List -->
+                    <div class="lg:col-span-3 p-6">
+                        <h4 class="text-xs font-bold text-gray-400 uppercase tracking-wider mb-4">Status</h4>
+                        <ul class="space-y-3">
+                            <li class="flex justify-between items-center p-2 rounded-lg bg-green-50 dark:bg-green-900/10 cursor-pointer hover:bg-green-100 dark:hover:bg-green-900/20 transition-colors" data-tooltip="Filter by Finished">
+                                <div class="flex items-center text-sm font-medium text-gray-700 dark:text-gray-300"><span class="w-2 h-2 rounded-full bg-green-500 mr-2"></span> Finished</div>
+                                <span class="font-bold text-green-700 dark:text-green-400 dynamic-val">890</span>
+                            </li>
+                            <li class="flex justify-between items-center p-2 rounded-lg bg-brand-50 dark:bg-brand-900/10 cursor-pointer hover:bg-brand-100 dark:hover:bg-brand-900/20 transition-colors" data-tooltip="Filter by Pending Approval">
+                                <div class="flex items-center text-sm font-medium text-gray-700 dark:text-gray-300"><span class="w-2 h-2 rounded-full bg-brand-500 mr-2"></span> Pending Approval</div>
+                                <span class="font-bold text-brand-600 dark:text-brand-400 dynamic-val">2</span>
+                            </li>
+                            <li class="flex justify-between items-center p-2 rounded-lg hover:bg-gray-50 dark:hover:bg-gray-800 cursor-pointer transition-colors" data-tooltip="Filter by Cancelled & Closed">
+                                <div class="flex items-center text-sm font-medium text-gray-700 dark:text-gray-300"><span class="w-2 h-2 rounded-full bg-gray-400 mr-2"></span> Cancelled & Closed</div>
+                                <span class="font-bold text-gray-900 dark:text-white dynamic-val">30</span>
+                            </li>
+                            <li class="flex justify-between items-center p-2 rounded-lg hover:bg-gray-50 dark:hover:bg-gray-800 cursor-pointer transition-colors" data-tooltip="Filter by Cancelled">
+                                <div class="flex items-center text-sm font-medium text-gray-700 dark:text-gray-300"><span class="w-2 h-2 rounded-full bg-gray-300 mr-2"></span> Cancelled</div>
+                                <span class="font-bold text-gray-900 dark:text-white dynamic-val">45</span>
+                            </li>
+                            <li class="flex justify-between items-center p-2 rounded-lg bg-red-50 dark:bg-red-900/10 cursor-pointer hover:bg-red-100 dark:hover:bg-red-900/20 transition-colors" data-tooltip="Filter by Declined">
+                                <div class="flex items-center text-sm font-medium text-gray-700 dark:text-gray-300"><span class="w-2 h-2 rounded-full bg-red-500 mr-2"></span> Declined</div>
+                                <span class="font-bold text-red-600 dark:text-red-400 dynamic-val">33</span>
+                            </li>
+                        </ul>
+                        <div class="mt-6 pt-4 border-t border-gray-100 dark:border-gray-800 flex justify-between items-center">
+                            <span class="text-xs font-bold text-gray-400 uppercase tracking-wider">Req. Approval</span>
+                            <span class="bg-brand-100 text-brand-600 py-1 px-3 rounded-full text-sm font-bold dark:bg-brand-900/30 dark:text-brand-400 dynamic-val">20</span>
+                        </div>
+                    </div>
+
+                    <!-- At-Risk Breakdown -->
+                    <div class="lg:col-span-4 p-6 bg-gray-50/30 dark:bg-gray-900/20">
+                        <div class="flex justify-between items-center mb-4">
+                            <h4 class="text-xs font-bold text-gray-400 uppercase tracking-wider">At-Risk Breakdown</h4>
+                            <span class="text-xs font-bold text-gray-500">20 TOTAL</span>
+                        </div>
+                        <div class="grid grid-cols-2 gap-3">
+                            <div class="border border-red-200 bg-red-50 rounded-lg p-3 dark:bg-red-900/10 dark:border-red-800 cursor-help" data-tooltip="Severely behind target (<50%)">
+                                <p class="text-xs font-bold text-red-600 uppercase tracking-wider mb-1">Critical</p>
+                                <p class="text-2xl font-bold text-red-600 dynamic-val">9</p>
+                                <p class="text-[0.65rem] text-red-400 mt-1">Below 50%</p>
+                            </div>
+                            <div class="border border-orange-200 bg-orange-50 rounded-lg p-3 dark:bg-orange-900/10 dark:border-orange-800 cursor-help" data-tooltip="Significantly behind target (<60%)">
+                                <p class="text-xs font-bold text-orange-600 uppercase tracking-wider mb-1">High</p>
+                                <p class="text-2xl font-bold text-orange-600 dynamic-val">2</p>
+                                <p class="text-[0.65rem] text-orange-400 mt-1">Below 60%</p>
+                            </div>
+                            <div class="border border-yellow-200 bg-yellow-50 rounded-lg p-3 dark:bg-yellow-900/10 dark:border-yellow-800 cursor-help" data-tooltip="Slightly behind target (<70%)">
+                                <p class="text-xs font-bold text-yellow-600 uppercase tracking-wider mb-1">Medium</p>
+                                <p class="text-2xl font-bold text-yellow-600 dynamic-val">6</p>
+                                <p class="text-[0.65rem] text-yellow-500 mt-1">Below 70%</p>
+                            </div>
+                            <div class="border border-green-200 bg-green-50 rounded-lg p-3 dark:bg-green-900/10 dark:border-green-800 cursor-help" data-tooltip="Campaign ended but targets incomplete">
+                                <p class="text-xs font-bold text-green-600 uppercase tracking-wider mb-1">Ended</p>
+                                <p class="text-2xl font-bold text-green-600 dynamic-val">0</p>
+                                <p class="text-[0.65rem] text-green-500 mt-1">Incomplete</p>
+                            </div>
+                        </div>
+                        <div class="mt-4 bg-red-50 dark:bg-red-900/20 rounded-lg p-3 flex justify-between items-center border border-red-100 dark:border-red-800">
+                            <span class="text-xs font-bold text-gray-600 dark:text-gray-300 uppercase tracking-wider">Total Coverage Needed</span>
+                            <span class="text-lg font-bold text-red-600 dark:text-red-400 dynamic-val">3,205</span>
+                        </div>
+                    </div>
+
+                    <!-- Urgent Follow-up -->
+                    <div class="lg:col-span-5 p-6">
+                        <div class="flex justify-between items-center mb-4">
+                            <h4 class="text-xs font-bold text-gray-400 uppercase tracking-wider">Top 5 Urgent Follow-up</h4>
+                            <span class="text-[0.65rem] font-bold bg-red-100 text-red-600 px-2 py-1 rounded uppercase tracking-wider dark:bg-red-900/30 dark:text-red-400">Action Now</span>
+                        </div>
+                        
+                        <div class="overflow-x-auto">
+                            <table class="w-full text-sm text-left">
+                                <thead class="text-[0.65rem] text-gray-400 uppercase border-b border-gray-100 dark:border-gray-800">
+                                    <tr>
+                                        <th class="pb-2 font-medium">Campaign</th>
+                                        <th class="pb-2 font-medium text-center">Mkt</th>
+                                        <th class="pb-2 font-medium text-center">Miss</th>
+                                        <th class="pb-2"></th>
+                                    </tr>
+                                </thead>
+                                <tbody class="divide-y divide-gray-50 dark:divide-gray-800/50">
+                                    <!-- Rows generated via JS to keep HTML clean, but writing out a few for structure -->
+                                    <tr class="hover:bg-gray-50 dark:hover:bg-gray-800/50 transition-colors group">
+                                        <td class="py-2.5 font-medium text-gray-800 dark:text-gray-200">Honey Butter – Pickup</td>
+                                        <td class="py-2.5 text-center text-gray-500">KSA</td>
+                                        <td class="py-2.5 text-center"><span class="inline-flex items-center justify-center w-5 h-5 rounded-full bg-red-100 text-red-600 text-xs font-bold dark:bg-red-900/30 dark:text-red-400">9</span></td>
+                                        <td class="py-2.5 text-right"><button class="text-xs border border-gray-200 dark:border-gray-700 rounded px-3 py-1 hover:bg-gray-100 dark:hover:bg-gray-700 transition-colors opacity-0 group-hover:opacity-100 focus:opacity-100" data-tooltip="Open Campaign Details">Visit</button></td>
+                                    </tr>
+                                    <tr class="hover:bg-gray-50 dark:hover:bg-gray-800/50 transition-colors group">
+                                        <td class="py-2.5 font-medium text-gray-800 dark:text-gray-200">Honey Butter – Pickup</td>
+                                        <td class="py-2.5 text-center text-gray-500">KSA</td>
+                                        <td class="py-2.5 text-center"><span class="inline-flex items-center justify-center w-5 h-5 rounded-full bg-red-100 text-red-600 text-xs font-bold dark:bg-red-900/30 dark:text-red-400">9</span></td>
+                                        <td class="py-2.5 text-right"><button class="text-xs border border-gray-200 dark:border-gray-700 rounded px-3 py-1 hover:bg-gray-100 dark:hover:bg-gray-700 transition-colors opacity-0 group-hover:opacity-100 focus:opacity-100" data-tooltip="Open Campaign Details">Visit</button></td>
+                                    </tr>
+                                    <tr class="hover:bg-gray-50 dark:hover:bg-gray-800/50 transition-colors group">
+                                        <td class="py-2.5 font-medium text-gray-800 dark:text-gray-200">Honey Butter – Pickup</td>
+                                        <td class="py-2.5 text-center text-gray-500">KSA</td>
+                                        <td class="py-2.5 text-center"><span class="inline-flex items-center justify-center w-5 h-5 rounded-full bg-red-100 text-red-600 text-xs font-bold dark:bg-red-900/30 dark:text-red-400">9</span></td>
+                                        <td class="py-2.5 text-right"><button class="text-xs border border-gray-200 dark:border-gray-700 rounded px-3 py-1 hover:bg-gray-100 dark:hover:bg-gray-700 transition-colors opacity-0 group-hover:opacity-100 focus:opacity-100" data-tooltip="Open Campaign Details">Visit</button></td>
+                                    </tr>
+                                     <tr class="hover:bg-gray-50 dark:hover:bg-gray-800/50 transition-colors group">
+                                        <td class="py-2.5 font-medium text-gray-800 dark:text-gray-200">Honey Butter – Pickup</td>
+                                        <td class="py-2.5 text-center text-gray-500">KSA</td>
+                                        <td class="py-2.5 text-center"><span class="inline-flex items-center justify-center w-5 h-5 rounded-full bg-red-100 text-red-600 text-xs font-bold dark:bg-red-900/30 dark:text-red-400">9</span></td>
+                                        <td class="py-2.5 text-right"><button class="text-xs border border-gray-200 dark:border-gray-700 rounded px-3 py-1 hover:bg-gray-100 dark:hover:bg-gray-700 transition-colors opacity-0 group-hover:opacity-100 focus:opacity-100" data-tooltip="Open Campaign Details">Visit</button></td>
+                                    </tr>
+                                     <tr class="hover:bg-gray-50 dark:hover:bg-gray-800/50 transition-colors group">
+                                        <td class="py-2.5 font-medium text-gray-800 dark:text-gray-200">Honey Butter – Pickup</td>
+                                        <td class="py-2.5 text-center text-gray-500">KSA</td>
+                                        <td class="py-2.5 text-center"><span class="inline-flex items-center justify-center w-5 h-5 rounded-full bg-red-100 text-red-600 text-xs font-bold dark:bg-red-900/30 dark:text-red-400">9</span></td>
+                                        <td class="py-2.5 text-right"><button class="text-xs border border-gray-200 dark:border-gray-700 rounded px-3 py-1 hover:bg-gray-100 dark:hover:bg-gray-700 transition-colors opacity-0 group-hover:opacity-100 focus:opacity-100" data-tooltip="Open Campaign Details">Visit</button></td>
+                                    </tr>
+                                </tbody>
+                            </table>
+                        </div>
+                    </div>
+                </div>
+            </section>
+
+            <!-- Influencers Section -->
+            <section class="bg-purple-50/30 dark:bg-purple-900/5 rounded-xl border border-purple-100 dark:border-purple-900/20 shadow-sm overflow-hidden">
+                <div class="px-6 py-4 border-b border-purple-100 dark:border-purple-900/20 flex justify-between items-center bg-white/50 dark:bg-gray-800/20 backdrop-blur-sm">
+                    <h3 class="font-bold text-gray-900 dark:text-white flex items-center">
+                        <span class="w-1 h-4 bg-purple-500 rounded-full mr-2"></span> INFLUENCERS
+                    </h3>
+                    <a href="#" class="text-sm text-purple-600 hover:text-purple-700 font-medium" data-tooltip="Open detailed influencer analytics">Detailed chart ›</a>
+                </div>
+
+                <!-- Influencer KPIs -->
+                <div class="grid grid-cols-2 md:grid-cols-5 divide-x divide-y md:divide-y-0 divide-purple-100 dark:divide-purple-900/20 bg-white dark:bg-panel-dark">
+                    <div class="p-4 cursor-pointer hover:bg-purple-50/50 dark:hover:bg-purple-900/10 transition-colors" data-tooltip="Total influencers in database">
+                        <p class="text-2xl font-bold text-gray-900 dark:text-white dynamic-val">12,000</p>
+                        <p class="text-[0.65rem] font-bold text-gray-400 uppercase tracking-wider mt-1">Total</p>
+                    </div>
+                    <div class="p-4 cursor-pointer hover:bg-purple-50/50 dark:hover:bg-purple-900/10 transition-colors" data-tooltip="Influencers awaiting approval">
+                        <p class="text-2xl font-bold text-brand-500 dynamic-val">5,000</p>
+                        <p class="text-[0.65rem] font-bold text-gray-400 uppercase tracking-wider mt-1">Pending</p>
+                        <p class="text-[0.6rem] text-gray-400">Awaiting approval</p>
+                    </div>
+                    <div class="p-4 cursor-pointer hover:bg-purple-50/50 dark:hover:bg-purple-900/10 transition-colors" data-tooltip="Influencers approved and ready">
+                        <p class="text-2xl font-bold text-purple-600 dark:text-purple-400 dynamic-val">6,500</p>
+                        <p class="text-[0.65rem] font-bold text-gray-400 uppercase tracking-wider mt-1">Approved</p>
+                        <p class="text-[0.6rem] text-gray-400">Ready to activate</p>
+                    </div>
+                    <div class="p-4 cursor-pointer hover:bg-purple-50/50 dark:hover:bg-purple-900/10 transition-colors" data-tooltip="Influencers confirmed for campaigns">
+                        <p class="text-2xl font-bold text-green-600 dark:text-green-400 dynamic-val">4,300</p>
+                        <p class="text-[0.65rem] font-bold text-gray-400 uppercase tracking-wider mt-1">Confirmed</p>
+                        <p class="text-[0.6rem] text-gray-400">Target: 6,000</p>
+                    </div>
+                    <div class="p-4 bg-red-50/50 dark:bg-red-900/10 cursor-pointer hover:bg-red-50 dark:hover:bg-red-900/20 transition-colors" data-tooltip="Action required for these influencers">
+                        <p class="text-2xl font-bold text-red-600 dynamic-val">670</p>
+                        <p class="text-[0.65rem] font-bold text-red-400 uppercase tracking-wider mt-1">Req. Approval</p>
+                        <p class="text-[0.6rem] text-red-400">500 inactive</p>
+                    </div>
+                </div>
+
+                <div class="grid grid-cols-1 lg:grid-cols-3 gap-4 p-4">
+                    <!-- Funnel Rates -->
+                    <div class="bg-white dark:bg-panel-dark rounded-lg p-5 border border-purple-100 dark:border-gray-800 shadow-sm">
+                        <h4 class="text-xs font-bold text-gray-400 uppercase tracking-wider mb-6">Funnel Rates</h4>
+                        <div class="flex justify-around items-center mb-6">
+                            <div class="flex flex-col items-center cursor-help" data-tooltip="70% of total influencers approved">
+                                <div class="donut-chart" style="background: conic-gradient(#f97316 70%, #f3f4f6 0);">
+                                    <span class="donut-inner text-gray-800 dark:text-gray-200">70%</span>
+                                </div>
+                                <span class="text-[0.65rem] font-bold text-gray-400 uppercase tracking-wider mt-3">Approval</span>
+                            </div>
+                            <div class="flex flex-col items-center cursor-help" data-tooltip="80% of approved influencers confirmed">
+                                <div class="donut-chart" style="background: conic-gradient(#6b21a8 80%, #f3f4f6 0);">
+                                    <span class="donut-inner text-gray-800 dark:text-gray-200">80%</span>
+                                </div>
+                                <span class="text-[0.65rem] font-bold text-gray-400 uppercase tracking-wider mt-3">Confirmation</span>
+                            </div>
+                        </div>
+                        <div class="bg-purple-50 dark:bg-purple-900/20 rounded p-3 flex justify-between items-center">
+                            <span class="text-xs font-bold text-purple-800 dark:text-purple-300 uppercase tracking-wider">Target Confirmation</span>
+                            <span class="font-bold text-purple-800 dark:text-purple-300 dynamic-val">6,000</span>
+                        </div>
+                    </div>
+
+                    <!-- Gender Split -->
+                    <div class="bg-white dark:bg-panel-dark rounded-lg p-5 border border-purple-100 dark:border-gray-800 shadow-sm flex flex-col justify-between">
+                        <div>
+                            <h4 class="text-xs font-bold text-gray-400 uppercase tracking-wider mb-4">Gender Split — Confirmed</h4>
+                            <div class="flex justify-between text-sm font-bold mb-2">
+                                <span class="text-purple-800 dark:text-purple-400">57% Male</span>
+                                <span class="text-brand-500">43% Female</span>
+                            </div>
+                            <!-- Stacked Bar -->
+                            <div class="h-12 flex rounded-lg overflow-hidden cursor-crosshair" data-tooltip="Hover for exact numbers">
+                                <div class="bg-purple-200 dark:bg-purple-800 flex items-center justify-center text-purple-900 dark:text-purple-100 font-bold text-lg hover:opacity-90 transition-opacity" style="width: 57%;" data-tooltip="3,000 Confirmed Male">
+                                    <span class="dynamic-val">3,000</span>
+                                </div>
+                                <div class="bg-brand-100 dark:bg-brand-900/50 flex items-center justify-center text-brand-700 dark:text-brand-300 font-bold text-lg hover:opacity-90 transition-opacity" style="width: 43%;" data-tooltip="1,300 Confirmed Female">
+                                    <span class="dynamic-val">1,300</span>
+                                </div>
+                            </div>
+                        </div>
+                        <p class="text-[0.65rem] text-center text-gray-400 uppercase tracking-wider mt-4">Total reach target across campaigns</p>
+                    </div>
+
+                    <!-- Risk Level -->
+                    <div class="bg-white dark:bg-panel-dark rounded-lg p-5 border border-purple-100 dark:border-gray-800 shadow-sm">
+                        <h4 class="text-xs font-bold text-gray-400 uppercase tracking-wider mb-4">Risk Level — Missing Coverage</h4>
+                        <div class="grid grid-cols-4 gap-2 text-[0.65rem]">
+                            <!-- Critical Col -->
+                            <div class="space-y-1">
+                                <div class="flex justify-between text-red-600 font-bold border-b border-red-100 dark:border-red-900/30 pb-1 mb-2"><span>CRITICAL</span><span>20</span></div>
+                                <div class="border border-red-100 dark:border-red-900/50 rounded px-1 py-0.5 flex justify-between bg-red-50/50 dark:bg-red-900/10 cursor-pointer hover:bg-red-100 dark:hover:bg-red-900/30" data-tooltip="View Influencer Details"><span>Youlious R.</span><span class="text-red-500 font-bold">×5</span></div>
+                                <div class="border border-red-100 dark:border-red-900/50 rounded px-1 py-0.5 flex justify-between bg-red-50/50 dark:bg-red-900/10 cursor-pointer hover:bg-red-100 dark:hover:bg-red-900/30" data-tooltip="View Influencer Details"><span>Youlious R.</span><span class="text-red-500 font-bold">×5</span></div>
+                                <div class="border border-red-100 dark:border-red-900/50 rounded px-1 py-0.5 flex justify-between bg-red-50/50 dark:bg-red-900/10 cursor-pointer hover:bg-red-100 dark:hover:bg-red-900/30" data-tooltip="View Influencer Details"><span>Youlious R.</span><span class="text-red-500 font-bold">×5</span></div>
+                                <div class="text-red-500 font-bold mt-1 cursor-pointer hover:underline">+14 more</div>
+                            </div>
+                            <!-- High Col -->
+                            <div class="space-y-1">
+                                <div class="flex justify-between text-orange-500 font-bold border-b border-orange-100 dark:border-orange-900/30 pb-1 mb-2"><span>HIGH</span><span>20</span></div>
+                                <div class="border border-orange-100 dark:border-orange-900/50 rounded px-1 py-0.5 flex justify-between bg-orange-50/50 dark:bg-orange-900/10 cursor-pointer hover:bg-orange-100 dark:hover:bg-orange-900/30" data-tooltip="View Influencer Details"><span>Youlious R.</span><span class="text-orange-500 font-bold">×3</span></div>
+                                <div class="border border-orange-100 dark:border-orange-900/50 rounded px-1 py-0.5 flex justify-between bg-orange-50/50 dark:bg-orange-900/10 cursor-pointer hover:bg-orange-100 dark:hover:bg-orange-900/30" data-tooltip="View Influencer Details"><span>Youlious R.</span><span class="text-orange-500 font-bold">×3</span></div>
+                                <div class="border border-orange-100 dark:border-orange-900/50 rounded px-1 py-0.5 flex justify-between bg-orange-50/50 dark:bg-orange-900/10 cursor-pointer hover:bg-orange-100 dark:hover:bg-orange-900/30" data-tooltip="View Influencer Details"><span>Youlious R.</span><span class="text-orange-500 font-bold">×3</span></div>
+                                <div class="text-orange-500 font-bold mt-1 cursor-pointer hover:underline">+14 more</div>
+                            </div>
+                            <!-- Med Col -->
+                            <div class="space-y-1">
+                                <div class="flex justify-between text-yellow-600 font-bold border-b border-yellow-100 dark:border-yellow-900/30 pb-1 mb-2"><span>MED</span><span>20</span></div>
+                                <div class="border border-yellow-100 dark:border-yellow-900/50 rounded px-1 py-0.5 flex justify-between bg-yellow-50/50 dark:bg-yellow-900/10 cursor-pointer hover:bg-yellow-100 dark:hover:bg-yellow-900/30" data-tooltip="View Influencer Details"><span>Youlious R.</span><span class="text-yellow-600 font-bold">×2</span></div>
+                                <div class="border border-yellow-100 dark:border-yellow-900/50 rounded px-1 py-0.5 flex justify-between bg-yellow-50/50 dark:bg-yellow-900/10 cursor-pointer hover:bg-yellow-100 dark:hover:bg-yellow-900/30" data-tooltip="View Influencer Details"><span>Youlious R.</span><span class="text-yellow-600 font-bold">×2</span></div>
+                                <div class="border border-yellow-100 dark:border-yellow-900/50 rounded px-1 py-0.5 flex justify-between bg-yellow-50/50 dark:bg-yellow-900/10 cursor-pointer hover:bg-yellow-100 dark:hover:bg-yellow-900/30" data-tooltip="View Influencer Details"><span>Youlious R.</span><span class="text-yellow-600 font-bold">×2</span></div>
+                                <div class="text-yellow-600 font-bold mt-1 cursor-pointer hover:underline">+14 more</div>
+                            </div>
+                            <!-- Low Col -->
+                            <div class="space-y-1">
+                                <div class="flex justify-between text-green-600 font-bold border-b border-green-100 dark:border-green-900/30 pb-1 mb-2"><span>LOW</span><span>20</span></div>
+                                <div class="border border-green-100 dark:border-green-900/50 rounded px-1 py-0.5 flex justify-between bg-green-50/50 dark:bg-green-900/10 cursor-pointer hover:bg-green-100 dark:hover:bg-green-900/30" data-tooltip="View Influencer Details"><span>Youlious R.</span><span class="text-green-600 font-bold">×1</span></div>
+                                <div class="border border-green-100 dark:border-green-900/50 rounded px-1 py-0.5 flex justify-between bg-green-50/50 dark:bg-green-900/10 cursor-pointer hover:bg-green-100 dark:hover:bg-green-900/30" data-tooltip="View Influencer Details"><span>Youlious R.</span><span class="text-green-600 font-bold">×1</span></div>
+                                <div class="border border-green-100 dark:border-green-900/50 rounded px-1 py-0.5 flex justify-between bg-green-50/50 dark:bg-green-900/10 cursor-pointer hover:bg-green-100 dark:hover:bg-green-900/30" data-tooltip="View Influencer Details"><span>Youlious R.</span><span class="text-green-600 font-bold">×1</span></div>
+                                <div class="text-green-600 font-bold mt-1 cursor-pointer hover:underline">+14 more</div>
+                            </div>
+                        </div>
+                    </div>
+                </div>
+            </section>
+
+            <!-- Coverage & Visits Section -->
+            <section class="bg-white dark:bg-panel-dark rounded-xl border border-gray-100 dark:border-gray-800 shadow-sm overflow-hidden">
+                <div class="px-6 py-4 border-b border-gray-100 dark:border-gray-800 flex justify-between items-center bg-gray-50/50 dark:bg-gray-800/20">
+                    <h3 class="font-bold text-gray-900 dark:text-white flex items-center">
+                        <span class="w-1 h-4 bg-brand-500 rounded-full mr-2"></span> COVERAGE & VISITS
+                    </h3>
+                    <a href="#" class="text-sm text-brand-500 hover:text-brand-600 font-medium" data-tooltip="Open full coverage analysis report">Full analysis ›</a>
+                </div>
+
+                <div class="grid grid-cols-1 lg:grid-cols-3 divide-y lg:divide-y-0 lg:divide-x divide-gray-100 dark:divide-gray-800">
+                    
+                    <!-- Coverage Status -->
+                    <div class="p-6">
+                        <div class="flex justify-between items-center mb-4">
+                            <h4 class="text-xs font-bold text-gray-400 uppercase tracking-wider">Coverage Status</h4>
+                            <span class="text-xs font-bold bg-brand-50 text-brand-600 px-2 py-1 rounded dark:bg-brand-900/30 dark:text-brand-400">70%</span>
+                        </div>
+                        
+                        <div class="grid grid-cols-4 gap-2 mb-6">
+                            <div class="bg-purple-50 dark:bg-purple-900/20 rounded p-2 text-center cursor-pointer hover:bg-purple-100 dark:hover:bg-purple-900/40 transition-colors" data-tooltip="Total Coverage Target">
+                                <p class="text-xl font-bold text-gray-900 dark:text-white dynamic-val">360</p>
+                                <p class="text-[0.55rem] font-bold text-gray-500 uppercase tracking-wider mt-1">Total</p>
+                            </div>
+                            <div class="bg-brand-50 dark:bg-brand-900/20 rounded p-2 text-center cursor-pointer hover:bg-brand-100 dark:hover:bg-brand-900/40 transition-colors" data-tooltip="Coverage Pending Verification">
+                                <p class="text-xl font-bold text-brand-500 dynamic-val">0</p>
+                                <p class="text-[0.55rem] font-bold text-brand-600 uppercase tracking-wider mt-1">Pending</p>
+                            </div>
+                            <div class="bg-purple-100 dark:bg-purple-900/40 rounded p-2 text-center cursor-pointer hover:bg-purple-200 dark:hover:bg-purple-900/60 transition-colors" data-tooltip="Coverage In Progress">
+                                <p class="text-xl font-bold text-purple-800 dark:text-purple-300 dynamic-val">100</p>
+                                <p class="text-[0.55rem] font-bold text-purple-800 dark:text-purple-300 uppercase tracking-wider mt-1">In Prog</p>
+                            </div>
+                            <div class="bg-green-50 dark:bg-green-900/20 rounded p-2 text-center cursor-pointer hover:bg-green-100 dark:hover:bg-green-900/40 transition-colors" data-tooltip="Completed Coverage">
+                                <p class="text-xl font-bold text-green-600 dark:text-green-400 dynamic-val">260</p>
+                                <p class="text-[0.55rem] font-bold text-green-600 dark:text-green-400 uppercase tracking-wider mt-1">Done</p>
+                            </div>
+                        </div>
+
+                        <div class="mb-6">
+                            <div class="flex justify-between text-xs font-bold mb-2">
+                                <span class="text-gray-500">PROGRESS</span>
+                                <span class="text-red-500">87 MISSED</span>
+                            </div>
+                            <div class="w-full bg-gray-200 dark:bg-gray-700 rounded-full h-1.5 flex overflow-hidden cursor-crosshair" data-tooltip="Coverage Progress Bar">
+                                <div class="bg-purple-400 h-1.5" style="width: 70%"></div>
+                                <div class="bg-red-400 h-1.5" style="width: 10%"></div>
+                            </div>
+                        </div>
+
+                        <div>
+                            <h5 class="text-[0.65rem] text-gray-400 uppercase tracking-wider mb-4">Coverage vs Target — Mar/Apr 2026</h5>
+                            <!-- Simple CSS Bar Chart -->
+                            <div class="flex items-end justify-between h-24 border-b border-gray-200 dark:border-gray-700 pb-2 px-2 cursor-crosshair" data-tooltip="Weekly Target vs Actual Coverage">
+                                <!-- Week 1 -->
+                                <div class="flex flex-col items-center group">
+                                    <div class="flex items-end space-x-1 h-20">
+                                        <div class="w-2 bg-purple-200 dark:bg-purple-800/50 rounded-t h-[60%] group-hover:bg-purple-300 transition-colors"></div>
+                                        <div class="w-2 bg-brand-500 rounded-t h-[50%] group-hover:bg-brand-400 transition-colors"></div>
+                                    </div>
+                                    <span class="text-[0.55rem] text-gray-400 mt-2">Mar W1</span>
+                                </div>
+                                <!-- Week 2 -->
+                                <div class="flex flex-col items-center group">
+                                    <div class="flex items-end space-x-1 h-20">
+                                        <div class="w-2 bg-purple-200 dark:bg-purple-800/50 rounded-t h-[80%] group-hover:bg-purple-300 transition-colors"></div>
+                                        <div class="w-2 bg-brand-500 rounded-t h-[70%] group-hover:bg-brand-400 transition-colors"></div>
+                                    </div>
+                                    <span class="text-[0.55rem] text-gray-400 mt-2">Mar W2</span>
+                                </div>
+                                <!-- Week 3 -->
+                                <div class="flex flex-col items-center group">
+                                    <div class="flex items-end space-x-1 h-20">
+                                        <div class="w-2 bg-purple-200 dark:bg-purple-800/50 rounded-t h-[70%] group-hover:bg-purple-300 transition-colors"></div>
+                                        <div class="w-2 bg-brand-500 rounded-t h-[65%] group-hover:bg-brand-400 transition-colors"></div>
+                                    </div>
+                                    <span class="text-[0.55rem] text-gray-400 mt-2">Mar W3</span>
+                                </div>
+                                <!-- Week 4 -->
+                                <div class="flex flex-col items-center group">
+                                    <div class="flex items-end space-x-1 h-20">
+                                        <div class="w-2 bg-purple-200 dark:bg-purple-800/50 rounded-t h-[90%] group-hover:bg-purple-300 transition-colors"></div>
+                                        <div class="w-2 bg-brand-500 rounded-t h-[85%] group-hover:bg-brand-400 transition-colors"></div>
+                                    </div>
+                                    <span class="text-[0.55rem] text-gray-400 mt-2">Mar W4</span>
+                                </div>
+                                <!-- Apr W1 -->
+                                <div class="flex flex-col items-center group">
+                                    <div class="flex items-end space-x-1 h-20">
+                                        <div class="w-2 bg-purple-200 dark:bg-purple-800/50 rounded-t h-[50%] group-hover:bg-purple-300 transition-colors"></div>
+                                        <div class="w-2 bg-brand-500 rounded-t h-[40%] group-hover:bg-brand-400 transition-colors"></div>
+                                    </div>
+                                    <span class="text-[0.55rem] text-gray-400 mt-2">Apr W1</span>
+                                </div>
+                                <!-- Apr W2 -->
+                                <div class="flex flex-col items-center group">
+                                    <div class="flex items-end space-x-1 h-20">
+                                        <div class="w-2 bg-purple-200 dark:bg-purple-800/50 rounded-t h-[40%] group-hover:bg-purple-300 transition-colors"></div>
+                                        <div class="w-2 bg-brand-500 rounded-t h-[20%] group-hover:bg-brand-400 transition-colors"></div>
+                                    </div>
+                                    <span class="text-[0.55rem] text-gray-400 mt-2">Apr W2</span>
+                                </div>
+                            </div>
+                            <div class="flex items-center space-x-4 mt-3 text-[0.65rem] text-gray-500">
+                                <div class="flex items-center"><span class="w-2 h-2 bg-purple-200 dark:bg-purple-800/50 mr-1 rounded-sm"></span> Target</div>
+                                <div class="flex items-center"><span class="w-2 h-2 bg-brand-500 mr-1 rounded-sm"></span> Coverage</div>
+                            </div>
+                        </div>
+                    </div>
+
+                    <!-- Visits Status -->
+                    <div class="p-6">
+                        <div class="flex justify-between items-center mb-4">
+                            <h4 class="text-xs font-bold text-gray-400 uppercase tracking-wider">Visits Status</h4>
+                            <span class="text-xs font-bold bg-green-50 text-green-600 border border-green-200 px-2 py-1 rounded dark:bg-green-900/20 dark:border-green-800 dark:text-green-400">70% VISIT RATE</span>
+                        </div>
+
+                        <div class="grid grid-cols-3 gap-2 mb-8">
+                            <div class="bg-green-50 dark:bg-green-900/10 rounded p-3 cursor-pointer hover:bg-green-100 dark:hover:bg-green-900/20 transition-colors" data-tooltip="Successfully completed visits">
+                                <p class="text-2xl font-bold text-green-700 dark:text-green-400 dynamic-val">351</p>
+                                <p class="text-[0.65rem] font-bold text-gray-500 uppercase tracking-wider mt-1">Visited</p>
+                            </div>
+                            <div class="bg-red-50 dark:bg-red-900/10 rounded p-3 cursor-pointer hover:bg-red-100 dark:hover:bg-red-900/20 transition-colors" data-tooltip="Scheduled visits that were missed">
+                                <p class="text-2xl font-bold text-red-600 dark:text-red-400 dynamic-val">156</p>
+                                <p class="text-[0.65rem] font-bold text-gray-500 uppercase tracking-wider mt-1">Missed</p>
+                            </div>
+                            <div class="bg-gray-50 dark:bg-gray-800 rounded p-3 cursor-pointer hover:bg-gray-100 dark:hover:bg-gray-700 transition-colors" data-tooltip="Visits scheduled in the next 3 days">
+                                <p class="text-2xl font-bold text-gray-900 dark:text-white dynamic-val">127</p>
+                                <p class="text-[0.65rem] font-bold text-gray-500 uppercase tracking-wider mt-1">Upcoming 3D</p>
+                            </div>
+                        </div>
+
+                        <div>
+                            <h4 class="text-xs font-bold text-gray-400 uppercase tracking-wider mb-4">Expected Visits</h4>
+                            <div class="space-y-4">
+                                <div class="flex items-center group cursor-pointer" data-tooltip="99 visits scheduled for today">
+                                    <span class="w-20 text-sm font-medium text-gray-700 dark:text-gray-300">Today</span>
+                                    <div class="flex-1 h-2 bg-gray-100 dark:bg-gray-800 rounded-full overflow-hidden mx-3">
+                                        <div class="h-full bg-brand-500 rounded-full group-hover:bg-brand-400 transition-colors" style="width: 80%"></div>
+                                    </div>
+                                    <span class="w-8 text-right text-sm font-bold text-gray-900 dark:text-white dynamic-val">99</span>
+                                </div>
+                                <div class="flex items-center group cursor-pointer" data-tooltip="12 visits scheduled for tomorrow">
+                                    <span class="w-20 text-sm font-medium text-gray-700 dark:text-gray-300">Tomorrow</span>
+                                    <div class="flex-1 h-2 bg-gray-100 dark:bg-gray-800 rounded-full overflow-hidden mx-3">
+                                        <div class="h-full bg-brand-500 rounded-full group-hover:bg-brand-400 transition-colors" style="width: 15%"></div>
+                                    </div>
+                                    <span class="w-8 text-right text-sm font-bold text-gray-900 dark:text-white dynamic-val">12</span>
+                                </div>
+                                <div class="flex items-center group cursor-pointer" data-tooltip="16 visits scheduled in 2 days">
+                                    <span class="w-20 text-sm font-medium text-gray-700 dark:text-gray-300">+2 days</span>
+                                    <div class="flex-1 h-2 bg-gray-100 dark:bg-gray-800 rounded-full overflow-hidden mx-3">
+                                        <div class="h-full bg-brand-500 rounded-full group-hover:bg-brand-400 transition-colors" style="width: 20%"></div>
+                                    </div>
+                                    <span class="w-8 text-right text-sm font-bold text-gray-900 dark:text-white dynamic-val">16</span>
+                                </div>
+                            </div>
+                        </div>
+                    </div>
+
+                    <!-- Brands Missing Coverage -->
+                    <div class="p-6">
+                        <h4 class="text-xs font-bold text-gray-400 uppercase tracking-wider mb-4">Brands — Missing Coverage</h4>
+                        
+                        <!-- Tabs -->
+                        <div class="flex space-x-1 mb-6 border-b border-gray-200 dark:border-gray-700">
+                            <button class="tab-btn active px-3 py-1.5 text-xs font-bold bg-brand-500 text-white rounded-t-lg" data-target="tab-brands" data-tooltip="View by Brands">Brands</button>
+                            <button class="tab-btn px-3 py-1.5 text-xs font-bold text-gray-500 hover:bg-gray-50 dark:hover:bg-gray-800 rounded-t-lg transition-colors" data-target="tab-companies" data-tooltip="View by Companies">Companies</button>
+                            <button class="tab-btn px-3 py-1.5 text-xs font-bold text-gray-500 hover:bg-gray-50 dark:hover:bg-gray-800 rounded-t-lg transition-colors" data-target="tab-countries" data-tooltip="View by Countries">Countries</button>
+                        </div>
+
+                        <!-- Tab Content -->
+                        <div id="tab-brands" class="tab-content block">
+                            <!-- Simple Block Chart -->
+                            <div class="flex space-x-1 h-16 mb-2 cursor-crosshair" data-tooltip="Distribution of missing coverage across categories">
+                                <div class="flex-1 bg-purple-400 dark:bg-purple-600/80 rounded-sm hover:opacity-80 transition-opacity"></div>
+                                <div class="flex-1 bg-purple-300 dark:bg-purple-700/80 rounded-sm hover:opacity-80 transition-opacity"></div>
+                                <div class="flex-1 bg-purple-400 dark:bg-purple-600/80 rounded-sm hover:opacity-80 transition-opacity"></div>
+                                <div class="flex-1 bg-purple-300 dark:bg-purple-700/80 rounded-sm hover:opacity-80 transition-opacity"></div>
+                                <div class="flex-1 bg-purple-200 dark:bg-purple-800/80 rounded-sm hover:opacity-80 transition-opacity"></div>
+                            </div>
+                            <div class="flex justify-between text-[0.55rem] text-gray-400 uppercase mb-6 px-2">
+                                <span>Milk</span>
+                                <span>Ice Cr.</span>
+                                <span>Milk</span>
+                                <span>Ice Cr.</span>
+                                <span>Milk</span>
+                            </div>
+
+                            <div class="space-y-3">
+                                <div class="flex justify-between items-center p-3 bg-red-50 dark:bg-red-900/10 border border-red-100 dark:border-red-900/30 rounded-lg cursor-pointer hover:bg-red-100 dark:hover:bg-red-900/20 transition-colors" data-tooltip="View list of underperforming campaigns">
+                                    <span class="text-sm text-gray-700 dark:text-gray-300">Campaigns below 80%</span>
+                                    <span class="text-sm font-bold text-red-600 dark:text-red-400"><span class="dynamic-val">18</span> campaigns</span>
+                                </div>
+                                <div class="flex justify-between items-center p-3 bg-green-50 dark:bg-green-900/10 border border-green-100 dark:border-green-900/30 rounded-lg cursor-pointer hover:bg-green-100 dark:hover:bg-green-900/20 transition-colors" data-tooltip="View list of on-track campaigns">
+                                    <span class="text-sm text-gray-700 dark:text-gray-300">Campaigns above 80%</span>
+                                    <span class="text-sm font-bold text-green-600 dark:text-green-400"><span class="dynamic-val">2</span> campaigns</span>
+                                </div>
+                            </div>
+                        </div>
+                        <div id="tab-companies" class="tab-content hidden text-sm text-gray-500 text-center py-10">
+                            Company data visualization would load here.
+                        </div>
+                        <div id="tab-countries" class="tab-content hidden text-sm text-gray-500 text-center py-10">
+                            Country data visualization would load here.
+                        </div>
+
+                    </div>
+                </div>
+            </section>
+            
+            <!-- Footer spacing -->
+            <div class="h-6"></div>
+        </div>
+    </main>
+
+    <script>
+        document.addEventListener('DOMContentLoaded', () => {
+            
+            // --- Tooltip Logic ---
+            const tooltip = document.getElementById('custom-tooltip');
+            const tooltipElements = document.querySelectorAll('[data-tooltip]');
+
+            tooltipElements.forEach(el => {
+                el.addEventListener('mouseenter', (e) => {
+                    const text = el.getAttribute('data-tooltip');
+                    if (!text) return;
+                    
+                    tooltip.textContent = text;
+                    tooltip.classList.add('show');
+                    
+                    // Calculate position
+                    const rect = el.getBoundingClientRect();
+                    const tooltipRect = tooltip.getBoundingClientRect();
+                    
+                    let top = rect.bottom + window.scrollY + 8; // Default below
+                    let left = rect.left + window.scrollX + (rect.width / 2) - (tooltipRect.width / 2); // Center align
+                    
+                    // Adjust if going off screen
+                    if (left < 10) left = 10;
+                    if (left + tooltipRect.width > window.innerWidth - 10) {
+                        left = window.innerWidth - tooltipRect.width - 10;
+                    }
+                    
+                    // If bottom goes off screen, put it above
+                    if (top + tooltipRect.height > window.innerHeight + window.scrollY) {
+                        top = rect.top + window.scrollY - tooltipRect.height - 8;
+                    }
+
+                    tooltip.style.top = `${top}px`;
+                    tooltip.style.left = `${left}px`;
+                });
+
+                el.addEventListener('mouseleave', () => {
+                    tooltip.classList.remove('show');
+                });
+            });
+
+            // --- Theme Toggle Logic ---
+            const themeToggleBtn = document.getElementById('themeToggle');
+            const htmlEl = document.documentElement;
+
+            themeToggleBtn.addEventListener('click', () => {
+                htmlEl.classList.toggle('dark');
+                // Optional: save preference to localStorage
+            });
+
+            // --- Refresh Data Simulation ---
+            const refreshBtn = document.getElementById('refreshBtn');
+            const dynamicVals = document.querySelectorAll('.dynamic-val');
+
+            refreshBtn.addEventListener('click', () => {
+                const icon = refreshBtn.querySelector('svg');
+                icon.classList.add('animate-spin-once');
+                
+                setTimeout(() => {
+                    icon.classList.remove('animate-spin-once');
+                }, 500);
+
+                dynamicVals.forEach(el => {
+                    // Add pulse animation
+                    el.classList.remove('value-update');
+                    void el.offsetWidth; // trigger reflow
+                    el.classList.add('value-update');
+
+                    // Slightly randomize number
+                    let currentText = el.textContent.replace(/,/g, '');
+                    let isNumber = !isNaN(currentText) && currentText.trim() !== '';
+                    
+                    if (isNumber) {
+                        let val = parseInt(currentText);
+                        // Fluctuate by +/- 5%
+                        let change = Math.floor(val * 0.05);
+                        if (change === 0 && val > 0) change = 1;
+                        let newVal = val + (Math.random() > 0.5 ? change : -change);
+                        if (newVal < 0) newVal = 0;
+                        el.textContent = newVal.toLocaleString();
+                    }
+                });
+            });
+
+            // --- Tabs Logic ---
+            const tabBtns = document.querySelectorAll('.tab-btn');
+            const tabContents = document.querySelectorAll('.tab-content');
+
+            tabBtns.forEach(btn => {
+                btn.addEventListener('click', () => {
+                    // Remove active from all
+                    tabBtns.forEach(b => {
+                        b.classList.remove('bg-brand-500', 'text-white');
+                        b.classList.add('text-gray-500');
+                    });
+                    tabContents.forEach(c => c.classList.add('hidden'));
+
+                    // Add active to clicked
+                    btn.classList.remove('text-gray-500');
+                    btn.classList.add('bg-brand-500', 'text-white');
+                    
+                    const targetId = btn.getAttribute('data-target');
+                    document.getElementById(targetId).classList.remove('hidden');
+                });
+            });
+        });
+    </script>
+</body>
+</html>
