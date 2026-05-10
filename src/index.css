@@ -1,0 +1,58 @@
+@import url('https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&family=Outfit:wght@400;500;600;700;800;900&family=JetBrains+Mono:wght@400;500&display=swap');
+@import "tailwindcss";
+
+@theme {
+  --font-sans: "Inter", ui-sans-serif, system-ui, sans-serif;
+  --font-display: "Outfit", sans-serif;
+  --font-mono: "JetBrains Mono", ui-monospace, SFMono-Regular, monospace;
+
+  /* Custom Sophisticated Minimalist Colors */
+  --color-stone: #F5F5F7;
+  --color-slate-soft: #F0F0F2;
+  --color-dawn: #E5E7EB;
+  --color-ink: #1C1C1E;
+  --color-citrus: #F28C33;
+  --color-muted: #6B7280;
+  
+  --radius-xl: 1.5rem;
+  --radius-2xl: 2rem;
+}
+
+@layer base {
+  :root[data-theme='flow'] {
+    --color-stone: #F5F5F7;
+    --color-ink: #1C1C1E;
+    --color-citrus: #F28C33;
+    --color-dawn: #E5E7EB;
+  }
+
+  :root[data-theme='tech'] {
+    --color-stone: #0A0A0B;
+    --color-ink: #E0E0E0;
+    --color-citrus: #00F0FF;
+    --color-dawn: #1A1A1C;
+    --color-muted: #888888;
+  }
+
+  :root[data-theme='minimal'] {
+    --color-stone: #FFFFFF;
+    --color-ink: #000000;
+    --color-citrus: #333333;
+    --color-dawn: #EEEEEE;
+  }
+
+  body {
+    @apply bg-stone text-ink font-sans antialiased transition-colors duration-500;
+  }
+}
+
+@layer components {
+  .glass-card {
+    @apply bg-white/80 backdrop-blur-xl border border-white/20 shadow-sm rounded-2xl p-6;
+  }
+  
+  .relaxed-title {
+    @apply font-display font-semibold tracking-tight leading-tight;
+  }
+}
+
