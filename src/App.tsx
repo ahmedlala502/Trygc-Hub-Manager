@@ -62,8 +62,8 @@ export default function App() {
     };
   }, [tasks, handovers]);
 
-  const [copilotMessages, setCopilotMessages] = useState<{role: 'user' | 'assistant', content: string}[]>([
-    { role: 'assistant', content: 'Operational intelligence is ready. How can I assist with your shift flow or risk synthesis today?' }
+  const [copilotMessages, setCopilotMessages] = useState<{role: 'user' | 'assistant', content: string, timestamp: number}[]>([
+    { role: 'assistant', content: 'Operational intelligence is ready. How can I assist with your shift flow or risk synthesis today?', timestamp: Date.now() }
   ]);
 
   const openSettingsTab = (tab: string) => {

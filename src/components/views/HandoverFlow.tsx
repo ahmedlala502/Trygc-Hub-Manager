@@ -1,7 +1,7 @@
 import React, { useState, useMemo } from 'react';
 import { Handover, Task, Shift, Priority, Status } from '../../types';
 import { RefreshCw, Calendar, MapPin, User, AlertTriangle, Send, CheckCircle2, ChevronRight, Info, Sparkles, Loader2, Clipboard, Globe, Users, ArrowRight, MessageSquare, History, Search, Layers, Quote } from 'lucide-react';
-import { GoogleGenAI } from '@google/genai';
+import { generateHandoverSummary } from '../../lib/apiService';
 import { motion, AnimatePresence } from 'motion/react';
 import { useLocalData } from '../LocalDataContext';
 import { COUNTRY_FLAGS, TEAMS } from '../../constants';
@@ -15,7 +15,7 @@ interface HandoverFlowProps {
     carryCount: number;
     handoverCount: number;
   };
-  aiInteractions: {role: 'user' | 'assistant', content: string}[];
+  aiInteractions: { role: 'user' | 'assistant', content: string }[];
 }
 
 export default function HandoverFlow({ handovers, tasks, stats, aiInteractions }: HandoverFlowProps) {
@@ -25,7 +25,7 @@ export default function HandoverFlow({ handovers, tasks, stats, aiInteractions }
   const [searchTerm, setSearchTerm] = useState('');
   const [editingHandoverId, setEditingHandoverId] = useState<string | null>(null);
   const teamOptions = settings.teams?.length ? settings.teams : TEAMS;
-  
+
   const [newHo, setNewHo] = useState<Partial<Handover>>({
     fromShift: Shift.MORNING,
     toShift: Shift.MID,
@@ -50,15 +50,29 @@ export default function HandoverFlow({ handovers, tasks, stats, aiInteractions }
   };
 
   const handleAIAnalysis = async () => {
-    const apiKey = process.env.GEMINI_API_KEY;
-    if (!apiKey || apiKey === 'MY_GEMINI_API_KEY' || isAnalyzing) return;
+    if (isAnalyzing) return;
 
     setIsAnalyzing(true);
     try {
-      const ai = new GoogleGenAI({ apiKey });
-      const prompt = `Synthesize a brief, professional shift handover watchout note for ${activeTasks.length} tasks including ${activeTasks.filter(t => t.priority === Priority.HIGH).length} high-risks.`;
-      const result = await ai.models.generateContent({ model: "gemini-1.5-flash", contents: prompt });
-      if (result.text) setNewHo(prev => ({ ...prev, watchouts: result.text.trim() }));
+      const taskData = activeTasks.map(t => ({
+        title: t.title,
+        priority: t.priority,
+        status: t.status
+      }));
+
+      const result = await generateHandoverSummary({
+        tasks: taskData,
+        watchouts: newHo.watchouts
+      });
+
+      if (result.text) {
+        setNewHo(prev => ({ ...prev, watchouts: result.text.trim() }));
+      }
+
+      // Show feedback if using fallback
+      if (result.provider === 'mock') {
+        console.log('Using local fallback for handover summary');
+      }
     } catch (error) {
       console.error('Handover Analysis Failed:', error);
     } finally {
@@ -97,16 +111,16 @@ export default function HandoverFlow({ handovers, tasks, stats, aiInteractions }
 
   const previewText = useMemo(() => {
     return `🔴 SHIFT HANDOVER: ${newHo.fromShift} → ${newHo.toShift}\n` +
-           `🏢 HUB: ${newHo.fromOffice} → ${newHo.toOffice}\n` +
-           `👥 TEAM: ${newHo.team || 'All teams'}\n` +
-           `👤 TRANSFERRED BY: ${newHo.outgoing}\n\n` +
-           `📦 OUTCOMES SYNCED (${activeTasks.length}):\n` +
-           activeTasks.map(t => `- [${t.priority}] ${t.title}`).join('\n') +
-           `\n\n⚠️ WATCHOUTS:\n${newHo.watchouts || 'No specific watchouts recorded.'}`;
+      `🏢 HUB: ${newHo.fromOffice} → ${newHo.toOffice}\n` +
+      `👥 TEAM: ${newHo.team || 'All teams'}\n` +
+      `👤 TRANSFERRED BY: ${newHo.outgoing}\n\n` +
+      `📦 OUTCOMES SYNCED (${activeTasks.length}):\n` +
+      activeTasks.map(t => `- [${t.priority}] ${t.title}`).join('\n') +
+      `\n\n⚠️ WATCHOUTS:\n${newHo.watchouts || 'No specific watchouts recorded.'}`;
   }, [newHo, activeTasks]);
 
-  const filteredTasks = tasks.filter(t => 
-    t.status !== Status.DONE && 
+  const filteredTasks = tasks.filter(t =>
+    t.status !== Status.DONE &&
     (!newHo.team || t.team === newHo.team) &&
     (t.title.toLowerCase().includes(searchTerm.toLowerCase()) || t.office.toLowerCase().includes(searchTerm.toLowerCase()) || t.team.toLowerCase().includes(searchTerm.toLowerCase()))
   );
@@ -148,7 +162,7 @@ export default function HandoverFlow({ handovers, tasks, stats, aiInteractions }
           <div key={s} className="space-y-3">
             <div className={`h-1.5 rounded-full transition-all duration-500 ${step >= s ? 'bg-citrus shadow-[0_0_10px_rgba(255,210,63,0.4)]' : 'bg-dawn'}`} />
             <span className={`block text-[8px] font-black uppercase tracking-widest text-center ${step === s ? 'text-ink' : 'text-muted/40'}`}>
-              {['Context', 'Setup', 'Outcomes', 'Insights', 'Preview', 'Success'][s-1]}
+              {['Context', 'Setup', 'Outcomes', 'Insights', 'Preview', 'Success'][s - 1]}
             </span>
           </div>
         ))}
@@ -205,26 +219,26 @@ export default function HandoverFlow({ handovers, tasks, stats, aiInteractions }
                     <div className="grid grid-cols-2 gap-4">
                       <div>
                         <label className="text-[9px] font-bold text-muted mb-2 block uppercase">Team Isolation</label>
-                        <select value={newHo.team || teamOptions[0]} onChange={(e) => setNewHo({...newHo, team: e.target.value, taskIds: []})} className="w-full bg-white border border-dawn rounded-xl px-4 py-3 text-sm font-bold focus:outline-none focus:ring-2 focus:ring-citrus/20">
+                        <select value={newHo.team || teamOptions[0]} onChange={(e) => setNewHo({ ...newHo, team: e.target.value, taskIds: [] })} className="w-full bg-white border border-dawn rounded-xl px-4 py-3 text-sm font-bold focus:outline-none focus:ring-2 focus:ring-citrus/20">
                           {teamOptions.map(team => <option key={team}>{team}</option>)}
                         </select>
                       </div>
                       <div>
                         <label className="text-[9px] font-bold text-muted mb-2 block uppercase">Country</label>
-                        <select value={newHo.country || user.country || 'EG'} onChange={(e) => setNewHo({...newHo, country: e.target.value})} className="w-full bg-white border border-dawn rounded-xl px-4 py-3 text-sm font-bold focus:outline-none focus:ring-2 focus:ring-citrus/20">
+                        <select value={newHo.country || user.country || 'EG'} onChange={(e) => setNewHo({ ...newHo, country: e.target.value })} className="w-full bg-white border border-dawn rounded-xl px-4 py-3 text-sm font-bold focus:outline-none focus:ring-2 focus:ring-citrus/20">
                           {Object.keys(COUNTRY_FLAGS).map(country => <option key={country} value={country}>{COUNTRY_FLAGS[country]} {country}</option>)}
                         </select>
                       </div>
                     </div>
                     <div>
                       <label className="text-[9px] font-bold text-muted mb-2 block uppercase">Current Shift</label>
-                      <select value={newHo.fromShift || Shift.MORNING} onChange={(e) => setNewHo({...newHo, fromShift: e.target.value as Shift})} className="w-full bg-white border border-dawn rounded-xl px-4 py-3 text-sm font-bold focus:outline-none focus:ring-2 focus:ring-citrus/20">
+                      <select value={newHo.fromShift || Shift.MORNING} onChange={(e) => setNewHo({ ...newHo, fromShift: e.target.value as Shift })} className="w-full bg-white border border-dawn rounded-xl px-4 py-3 text-sm font-bold focus:outline-none focus:ring-2 focus:ring-citrus/20">
                         {Object.values(Shift).map(s => <option key={s}>{s}</option>)}
                       </select>
                     </div>
                     <div>
                       <label className="text-[9px] font-bold text-muted mb-2 block uppercase">Outgoing Hub</label>
-                      <select value={newHo.fromOffice || offices[0]?.name || ''} onChange={(e) => setNewHo({...newHo, fromOffice: e.target.value})} className="w-full bg-white border border-dawn rounded-xl px-4 py-3 text-sm font-bold focus:outline-none">
+                      <select value={newHo.fromOffice || offices[0]?.name || ''} onChange={(e) => setNewHo({ ...newHo, fromOffice: e.target.value })} className="w-full bg-white border border-dawn rounded-xl px-4 py-3 text-sm font-bold focus:outline-none">
                         {[...new Set([newHo.fromOffice, ...offices.map(office => office.name)])].filter(Boolean).map(office => <option key={office}>{office}</option>)}
                       </select>
                     </div>
@@ -235,13 +249,13 @@ export default function HandoverFlow({ handovers, tasks, stats, aiInteractions }
                     <span className="text-[10px] font-black uppercase tracking-[0.2em] text-citrus/80 block">Destination Node</span>
                     <div>
                       <label className="text-[9px] font-bold text-white/50 mb-2 block uppercase">Receiving Shift</label>
-                      <select value={newHo.toShift || Shift.MID} onChange={(e) => setNewHo({...newHo, toShift: e.target.value as Shift})} className="w-full bg-white/10 border border-white/20 rounded-xl px-4 py-3 text-sm font-bold focus:outline-none text-white appearance-none">
+                      <select value={newHo.toShift || Shift.MID} onChange={(e) => setNewHo({ ...newHo, toShift: e.target.value as Shift })} className="w-full bg-white/10 border border-white/20 rounded-xl px-4 py-3 text-sm font-bold focus:outline-none text-white appearance-none">
                         {Object.values(Shift).map(s => <option key={s} className="text-ink">{s}</option>)}
                       </select>
                     </div>
                     <div>
                       <label className="text-[9px] font-bold text-white/50 mb-2 block uppercase">Incoming Hub</label>
-                      <select value={newHo.toOffice || offices[1]?.name || offices[0]?.name || ''} onChange={(e) => setNewHo({...newHo, toOffice: e.target.value})} className="w-full bg-white/10 border border-white/20 rounded-xl px-4 py-3 text-sm font-bold focus:outline-none text-white">
+                      <select value={newHo.toOffice || offices[1]?.name || offices[0]?.name || ''} onChange={(e) => setNewHo({ ...newHo, toOffice: e.target.value })} className="w-full bg-white/10 border border-white/20 rounded-xl px-4 py-3 text-sm font-bold focus:outline-none text-white">
                         {[...new Set([newHo.toOffice, ...offices.map(office => office.name)])].filter(Boolean).map(office => <option key={office} className="text-ink">{office}</option>)}
                       </select>
                     </div>
@@ -278,10 +292,10 @@ export default function HandoverFlow({ handovers, tasks, stats, aiInteractions }
                 {filteredTasks.map(t => (
                   <label key={t.id} className={`group flex items-start gap-4 p-5 rounded-[24px] border transition-all cursor-pointer ${newHo.taskIds?.includes(t.id) ? 'bg-citrus/5 border-citrus shadow-inner' : 'bg-white border-dawn hover:border-citrus/30'}`}>
                     <div className="pt-1">
-                       <input type="checkbox" className="w-5 h-5 accent-citrus rounded-lg" checked={newHo.taskIds?.includes(t.id)} onChange={(e) => {
-                         const ids = newHo.taskIds || [];
-                         setNewHo({...newHo, taskIds: e.target.checked ? [...ids, t.id] : ids.filter(id => id !== t.id)});
-                       }} />
+                      <input type="checkbox" className="w-5 h-5 accent-citrus rounded-lg" checked={newHo.taskIds?.includes(t.id)} onChange={(e) => {
+                        const ids = newHo.taskIds || [];
+                        setNewHo({ ...newHo, taskIds: e.target.checked ? [...ids, t.id] : ids.filter(id => id !== t.id) });
+                      }} />
                     </div>
                     <div className="flex-1 min-w-0">
                       <div className="flex items-center justify-between gap-2 mb-1">
@@ -289,9 +303,9 @@ export default function HandoverFlow({ handovers, tasks, stats, aiInteractions }
                         {t.priority === Priority.HIGH && <AlertTriangle className="w-3.5 h-3.5 text-red-500 shrink-0" />}
                       </div>
                       <div className="flex items-center gap-3">
-                         <span className="text-[9px] font-black uppercase tracking-widest text-muted/60">{t.owner}</span>
-                         <span className="w-1 h-1 bg-dawn rounded-full" />
-                         <span className="text-[9px] font-black uppercase tracking-widest text-muted/60">{t.office}</span>
+                        <span className="text-[9px] font-black uppercase tracking-widest text-muted/60">{t.owner}</span>
+                        <span className="w-1 h-1 bg-dawn rounded-full" />
+                        <span className="text-[9px] font-black uppercase tracking-widest text-muted/60">{t.office}</span>
                       </div>
                     </div>
                   </label>
@@ -320,7 +334,7 @@ export default function HandoverFlow({ handovers, tasks, stats, aiInteractions }
                     <p className="text-xs font-bold text-muted/60 uppercase tracking-widest">Synthetic intelligence for the next team</p>
                   </div>
                 </div>
-                <button 
+                <button
                   onClick={handleAIAnalysis}
                   disabled={isAnalyzing || activeTasks.length === 0}
                   className="flex items-center gap-2 px-5 py-2.5 bg-citrus text-ink rounded-xl text-[10px] font-black uppercase tracking-widest hover:scale-105 transition-all shadow-lg shadow-citrus/10"
@@ -333,9 +347,9 @@ export default function HandoverFlow({ handovers, tasks, stats, aiInteractions }
               <div className="space-y-6">
                 <div className="relative group">
                   <div className="absolute top-4 left-4 opacity-10"><Quote className="w-8 h-8" /></div>
-                  <textarea 
+                  <textarea
                     value={newHo.watchouts || ''}
-                    onChange={(e) => setNewHo({...newHo, watchouts: e.target.value})}
+                    onChange={(e) => setNewHo({ ...newHo, watchouts: e.target.value })}
                     placeholder="Enter critical knowledge for the incoming shift..."
                     className="w-full bg-stone/30 border border-dawn rounded-[32px] p-8 text-sm font-bold min-h-[300px] focus:outline-none focus:ring-4 focus:ring-citrus/5 focus:border-citrus transition-all resize-none shadow-inner"
                   />
@@ -354,7 +368,7 @@ export default function HandoverFlow({ handovers, tasks, stats, aiInteractions }
 
           {step === 5 && (
             <motion.div initial={{ opacity: 0, x: 20 }} animate={{ opacity: 1, x: 0 }} exit={{ opacity: 0, x: -20 }} key="step5" className="space-y-8">
-               <div className="flex items-center justify-between mb-8">
+              <div className="flex items-center justify-between mb-8">
                 <div className="flex items-center gap-3">
                   <div className="p-3 bg-citrus/10 rounded-xl"><Clipboard className="w-6 h-6 text-citrus" /></div>
                   <div>
@@ -366,47 +380,47 @@ export default function HandoverFlow({ handovers, tasks, stats, aiInteractions }
 
               <div className="grid grid-cols-2 gap-10">
                 <div className="space-y-6">
-                   <div className="p-6 bg-ink text-white rounded-[32px] shadow-2xl relative overflow-hidden group">
-                      <div className="relative z-10">
-                        <span className="block text-[10px] font-black uppercase tracking-widest text-citrus mb-6">Channel Payload</span>
-                        <div className="bg-white/10 rounded-2xl p-6 font-mono text-[11px] leading-relaxed whitespace-pre-wrap max-h-[350px] overflow-y-auto no-scrollbar">
-                           {previewText}
-                        </div>
-                        <button 
-                          onClick={() => navigator.clipboard.writeText(previewText)}
-                          className="mt-6 flex items-center justify-center gap-2 w-full py-4 bg-white text-ink rounded-2xl font-black text-[10px] uppercase tracking-[0.2em] hover:bg-citrus transition-colors"
-                        >
-                          <Clipboard className="w-3.5 h-3.5" />
-                          <span>Copy for Slack / Teams</span>
-                        </button>
+                  <div className="p-6 bg-ink text-white rounded-[32px] shadow-2xl relative overflow-hidden group">
+                    <div className="relative z-10">
+                      <span className="block text-[10px] font-black uppercase tracking-widest text-citrus mb-6">Channel Payload</span>
+                      <div className="bg-white/10 rounded-2xl p-6 font-mono text-[11px] leading-relaxed whitespace-pre-wrap max-h-[350px] overflow-y-auto no-scrollbar">
+                        {previewText}
                       </div>
-                      <Globe className="absolute -right-10 -bottom-10 w-48 h-48 opacity-[0.05] group-hover:rotate-12 transition-transform duration-1000" />
-                   </div>
+                      <button
+                        onClick={() => navigator.clipboard.writeText(previewText)}
+                        className="mt-6 flex items-center justify-center gap-2 w-full py-4 bg-white text-ink rounded-2xl font-black text-[10px] uppercase tracking-[0.2em] hover:bg-citrus transition-colors"
+                      >
+                        <Clipboard className="w-3.5 h-3.5" />
+                        <span>Copy for Slack / Teams</span>
+                      </button>
+                    </div>
+                    <Globe className="absolute -right-10 -bottom-10 w-48 h-48 opacity-[0.05] group-hover:rotate-12 transition-transform duration-1000" />
+                  </div>
                 </div>
-                
+
                 <div className="flex flex-col justify-between py-6">
-                   <div className="space-y-8">
-                      <div className="flex gap-4 p-4 border border-dawn rounded-2xl bg-stone/10">
-                        <Users className="w-5 h-5 text-citrus shrink-0" />
-                        <div>
-                          <span className="block text-[10px] font-black uppercase tracking-widest text-ink mb-1">Incoming Lead</span>
-                          <input type="text" placeholder="Add receiver (optional)" value={newHo.incoming || ''} onChange={(e) => setNewHo({...newHo, incoming: e.target.value})} className="bg-transparent border-none p-0 text-sm font-bold text-ink focus:outline-none placeholder:text-muted/30" />
-                        </div>
+                  <div className="space-y-8">
+                    <div className="flex gap-4 p-4 border border-dawn rounded-2xl bg-stone/10">
+                      <Users className="w-5 h-5 text-citrus shrink-0" />
+                      <div>
+                        <span className="block text-[10px] font-black uppercase tracking-widest text-ink mb-1">Incoming Lead</span>
+                        <input type="text" placeholder="Add receiver (optional)" value={newHo.incoming || ''} onChange={(e) => setNewHo({ ...newHo, incoming: e.target.value })} className="bg-transparent border-none p-0 text-sm font-bold text-ink focus:outline-none placeholder:text-muted/30" />
                       </div>
-                      <div className="space-y-2">
-                        <div className="flex items-center justify-between text-[9px] font-black uppercase tracking-widest text-muted">
-                           <span>Relay Readiness</span>
-                           <span>100%</span>
-                        </div>
-                        <div className="h-1 bg-stone rounded-full overflow-hidden">
-                           <div className="h-full bg-citrus w-full" />
-                        </div>
+                    </div>
+                    <div className="space-y-2">
+                      <div className="flex items-center justify-between text-[9px] font-black uppercase tracking-widest text-muted">
+                        <span>Relay Readiness</span>
+                        <span>100%</span>
                       </div>
-                   </div>
-                   
-                   <p className="text-[10px] font-bold text-muted leading-relaxed italic border-l-4 border-l-citrus pl-4">
-                     Confirming this relay will broadcast the operational status across all regional command centers.
-                   </p>
+                      <div className="h-1 bg-stone rounded-full overflow-hidden">
+                        <div className="h-full bg-citrus w-full" />
+                      </div>
+                    </div>
+                  </div>
+
+                  <p className="text-[10px] font-bold text-muted leading-relaxed italic border-l-4 border-l-citrus pl-4">
+                    Confirming this relay will broadcast the operational status across all regional command centers.
+                  </p>
                 </div>
               </div>
 
@@ -453,7 +467,7 @@ export default function HandoverFlow({ handovers, tasks, stats, aiInteractions }
           </div>
           <span className="text-[9px] font-black uppercase tracking-widest text-muted/40">Chronological sync log</span>
         </div>
-        
+
         <div className="glass-card p-0 overflow-hidden border-dawn shadow-lg">
           <table className="w-full text-left">
             <thead className="bg-stone border-b border-dawn">
@@ -476,9 +490,9 @@ export default function HandoverFlow({ handovers, tasks, stats, aiInteractions }
                   </td>
                   <td className="px-8 py-6">
                     <div className="flex items-center gap-2">
-                       <span className="text-[10px] font-black uppercase tracking-widest text-ink">{ho.fromShift}</span>
-                       <ArrowRight className="w-3 h-3 text-muted/40" />
-                       <span className="text-[10px] font-black uppercase tracking-widest text-ink">{ho.toShift}</span>
+                      <span className="text-[10px] font-black uppercase tracking-widest text-ink">{ho.fromShift}</span>
+                      <ArrowRight className="w-3 h-3 text-muted/40" />
+                      <span className="text-[10px] font-black uppercase tracking-widest text-ink">{ho.toShift}</span>
                     </div>
                     <span className="text-[9px] font-bold text-muted/60 lowercase">{ho.fromOffice} hub</span>
                   </td>
@@ -505,8 +519,8 @@ export default function HandoverFlow({ handovers, tasks, stats, aiInteractions }
                         <button onClick={() => acknowledgeHandover(ho.id)} className="px-5 py-2 bg-citrus text-ink rounded-lg text-[9px] font-black uppercase tracking-widest hover:scale-105 transition-all shadow-lg shadow-citrus/10">Acknowledge</button>
                       ) : (
                         <div className="flex items-center justify-end gap-2 text-green-500 font-black text-[9px] uppercase tracking-widest">
-                           <CheckCircle2 className="w-3.5 h-3.5" />
-                           <span>Sync Clear</span>
+                          <CheckCircle2 className="w-3.5 h-3.5" />
+                          <span>Sync Clear</span>
                         </div>
                       )}
                     </div>

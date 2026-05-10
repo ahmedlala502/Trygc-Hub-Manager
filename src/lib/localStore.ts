@@ -1,6 +1,13 @@
 import { Handover, Member, Office, Priority, Shift, Status, Task, User } from '../types';
 import { INITIAL_HANDOVERS, INITIAL_MEMBERS, INITIAL_TASKS, INITIAL_USER, OFFICES, TEAMS } from '../constants';
 
+export interface CustomProvider {
+  id: string;
+  name: string;
+  baseUrl: string;
+  defaultModel: string;
+}
+
 export interface WorkspaceSettings {
   name: string;
   sla: number;
@@ -10,10 +17,14 @@ export interface WorkspaceSettings {
   authMode?: 'local' | 'none';
   minPasscodeLength?: number;
   sessionLockMinutes?: number;
-  aiProvider?: 'gemini' | 'openai' | 'alibaba' | 'local';
+  aiProvider?: string;
   aiModel?: string;
   aiEndpoint?: string;
   apiKeyHint?: string;
+  providerModels?: Record<string, string>;
+  providerEndpoints?: Record<string, string>;
+  mcpConfig?: string;
+  customProviders?: CustomProvider[];
   featureFlags?: Record<string, boolean>;
   appearance?: {
     fontSize: number;

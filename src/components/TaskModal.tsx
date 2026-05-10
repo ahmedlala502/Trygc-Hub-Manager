@@ -3,7 +3,7 @@ import { X, Calendar, User, MapPin, Flag, Zap, Info, Sparkles, Loader2, Megaphon
 import { Task, Status, Priority, Shift, Reminder } from '../types';
 import { TEAMS } from '../constants';
 import { motion, AnimatePresence } from 'motion/react';
-import { GoogleGenAI } from '@google/genai';
+import { improveTaskContent } from '../lib/apiService';
 import { useLocalData } from './LocalDataContext';
 
 interface TaskModalProps {
@@ -23,19 +23,19 @@ const KNOWN_USERS = [
 ];
 
 const createBlankTask = (teams: string[], office: string, country: string): Partial<Task> => ({
-    title: '',
-    campaign: '',
-    owner: 'Ahmed Essmat',
-    country,
-    office,
-    team: teams[0] || TEAMS[0],
-    priority: Priority.MEDIUM,
-    status: Status.BACKLOG,
-    shift: Shift.MORNING,
-    due: new Date(Date.now() + 86400000).toISOString().slice(0, 16),
-    carry: false,
-    details: '',
-    reminders: [],
+  title: '',
+  campaign: '',
+  owner: 'Ahmed Essmat',
+  country,
+  office,
+  team: teams[0] || TEAMS[0],
+  priority: Priority.MEDIUM,
+  status: Status.BACKLOG,
+  shift: Shift.MORNING,
+  due: new Date(Date.now() + 86400000).toISOString().slice(0, 16),
+  carry: false,
+  details: '',
+  reminders: [],
 });
 
 export default function TaskModal({ isOpen, onClose, onSave, initialTask }: TaskModalProps) {
@@ -62,8 +62,8 @@ export default function TaskModal({ isOpen, onClose, onSave, initialTask }: Task
   const suggestions = useMemo(() => {
     const input = form.owner?.toLowerCase() || '';
     if (!input || input.includes('@')) return [];
-    
-    return KNOWN_USERS.filter(u => 
+
+    return KNOWN_USERS.filter(u =>
       u.name.toLowerCase().includes(input) ||
       u.email.toLowerCase().includes(input)
     ).slice(0, 4);
@@ -72,26 +72,24 @@ export default function TaskModal({ isOpen, onClose, onSave, initialTask }: Task
   if (!isOpen) return null;
 
   const handleAISuggest = async (field: 'title' | 'details') => {
-    const apiKey = process.env.GEMINI_API_KEY;
-    if (!apiKey || apiKey === 'MY_GEMINI_API_KEY' || isSuggesting) return;
+    if (isSuggesting) return;
 
     setIsSuggesting(true);
     try {
-      const ai = new GoogleGenAI({ apiKey });
-
-      const prompt = field === 'title' 
-        ? `Improve this task title for clarity and professionalism: "${form.title}". Current context: campaign "${form.campaign}", team "${form.team}". Return only the improved title.`
-        : `Expand this task description into a professional operational note: "${form.title} - ${form.details}". Context: team "${form.team}", region "${form.office}". Use bullet points if necessary.`;
-
-      const result = await ai.models.generateContent({
-        model: "gemini-3-flash-preview",
-        contents: prompt
+      const result = await improveTaskContent({
+        content: field === 'title' ? (form.title || '') : `${form.title} - ${form.details}`,
+        type: field,
+        campaign: form.campaign,
+        team: form.team
       });
-      
-      const text = result.text;
-      
-      if (text) {
-        setForm(prev => ({ ...prev, [field]: text.trim() }));
+
+      if (result.text) {
+        setForm(prev => ({ ...prev, [field]: result.text.trim() }));
+      }
+
+      // Log if using fallback
+      if (result.provider === 'mock') {
+        console.log('Using local fallback for task suggestion');
       }
     } catch (error) {
       console.error('AI Suggestion Failed:', error);
@@ -110,15 +108,15 @@ export default function TaskModal({ isOpen, onClose, onSave, initialTask }: Task
   return (
     <AnimatePresence>
       <div className="fixed inset-0 z-50 flex items-center justify-center p-4">
-        <motion.div 
+        <motion.div
           initial={{ opacity: 0 }}
           animate={{ opacity: 1 }}
           exit={{ opacity: 0 }}
           onClick={onClose}
           className="absolute inset-0 bg-ink/40 backdrop-blur-sm"
         />
-        
-        <motion.div 
+
+        <motion.div
           initial={{ opacity: 0, scale: 0.95, y: 20 }}
           animate={{ opacity: 1, scale: 1, y: 0 }}
           exit={{ opacity: 0, scale: 0.95, y: 20 }}
@@ -138,7 +136,7 @@ export default function TaskModal({ isOpen, onClose, onSave, initialTask }: Task
             <div className="space-y-4">
               <div className="flex items-center justify-between">
                 <label className="text-[10px] font-black uppercase tracking-[0.2em] text-muted block">Outcome Title</label>
-                <button 
+                <button
                   type="button"
                   onClick={() => handleAISuggest('title')}
                   disabled={!form.title || isSuggesting}
@@ -148,13 +146,13 @@ export default function TaskModal({ isOpen, onClose, onSave, initialTask }: Task
                   <span>Refine Title</span>
                 </button>
               </div>
-              <input 
+              <input
                 autoFocus
                 type="text"
                 required
                 placeholder="What is the objective?"
                 value={form.title || ''}
-                onChange={e => setForm({...form, title: e.target.value})}
+                onChange={e => setForm({ ...form, title: e.target.value })}
                 className="w-full text-xl font-semibold bg-stone/30 border-none rounded-2xl px-6 py-4 focus:ring-2 focus:ring-citrus/20 outline-none placeholder:text-muted/40"
               />
             </div>
@@ -164,11 +162,11 @@ export default function TaskModal({ isOpen, onClose, onSave, initialTask }: Task
                 <Megaphone className="w-3 h-3" />
                 <span>Associated Campaign</span>
               </label>
-              <input 
+              <input
                 type="text"
                 placeholder="e.g. Ramadan 2024, Brand Launch..."
                 value={form.campaign || ''}
-                onChange={e => setForm({...form, campaign: e.target.value})}
+                onChange={e => setForm({ ...form, campaign: e.target.value })}
                 className="w-full bg-stone/50 border border-dawn rounded-xl px-6 py-3 text-sm font-bold focus:border-citrus outline-none"
               />
             </div>
@@ -178,11 +176,11 @@ export default function TaskModal({ isOpen, onClose, onSave, initialTask }: Task
                 <Globe className="w-3 h-3" />
                 <span>Target Country</span>
               </label>
-              <input 
+              <input
                 type="text"
                 placeholder="e.g. KSA, UAE, Egypt..."
                 value={form.country || ''}
-                onChange={e => setForm({...form, country: e.target.value})}
+                onChange={e => setForm({ ...form, country: e.target.value })}
                 className="w-full bg-stone/50 border border-dawn rounded-xl px-6 py-3 text-sm font-bold focus:border-citrus outline-none"
               />
             </div>
@@ -192,9 +190,9 @@ export default function TaskModal({ isOpen, onClose, onSave, initialTask }: Task
                 <Users className="w-3 h-3" />
                 <span>Executing Team</span>
               </label>
-              <select 
+              <select
                 value={form.team || teamOptions[0] || TEAMS[0]}
-                onChange={e => setForm({...form, team: e.target.value})}
+                onChange={e => setForm({ ...form, team: e.target.value })}
                 className="w-full bg-stone/50 border border-dawn rounded-xl px-6 py-3 text-sm font-bold focus:border-citrus outline-none"
               >
                 {teamOptions.map(t => <option key={t} value={t}>{t}</option>)}
@@ -206,33 +204,33 @@ export default function TaskModal({ isOpen, onClose, onSave, initialTask }: Task
                 <div className="space-y-2 relative">
                   <label className="text-[10px] font-black uppercase tracking-[0.2em] text-muted flex items-center justify-between">
                     <div className="flex items-center gap-2">
-	                      <User className="w-3 h-3" />
-	                      <span>Owner</span>
-	                    </div>
-	                    {form.owner && (
-	                      <motion.div 
-	                        initial={{ scale: 0 }} 
-	                        animate={{ scale: 1 }} 
-	                        className="flex items-center gap-1 text-[9px] font-bold text-green-600 uppercase tracking-widest"
-	                      >
-	                        <Check className="w-3 h-3" />
-	                        <span>Assigned</span>
-	                      </motion.div>
-	                    )}
+                      <User className="w-3 h-3" />
+                      <span>Owner</span>
+                    </div>
+                    {form.owner && (
+                      <motion.div
+                        initial={{ scale: 0 }}
+                        animate={{ scale: 1 }}
+                        className="flex items-center gap-1 text-[9px] font-bold text-green-600 uppercase tracking-widest"
+                      >
+                        <Check className="w-3 h-3" />
+                        <span>Assigned</span>
+                      </motion.div>
+                    )}
                   </label>
                   <div className="relative group/owner">
-	                    <input 
-	                      type="text"
-	                      placeholder="Owner name or email"
+                    <input
+                      type="text"
+                      placeholder="Owner name or email"
                       value={form.owner || ''}
                       onFocus={() => setShowSuggestions(true)}
                       onBlur={() => setTimeout(() => setShowSuggestions(false), 200)}
-                      onChange={e => setForm({...form, owner: e.target.value})}
-	                      className="w-full bg-stone/50 border border-dawn focus:border-citrus rounded-xl px-4 py-3 text-sm font-bold outline-none transition-all"
+                      onChange={e => setForm({ ...form, owner: e.target.value })}
+                      className="w-full bg-stone/50 border border-dawn focus:border-citrus rounded-xl px-4 py-3 text-sm font-bold outline-none transition-all"
                     />
                     <AnimatePresence>
                       {showSuggestions && suggestions.length > 0 && (
-                        <motion.div 
+                        <motion.div
                           initial={{ opacity: 0, y: -10, scale: 0.95 }}
                           animate={{ opacity: 1, y: 0, scale: 1 }}
                           exit={{ opacity: 0, scale: 0.95 }}
@@ -246,7 +244,7 @@ export default function TaskModal({ isOpen, onClose, onSave, initialTask }: Task
                               key={u.email}
                               type="button"
                               onClick={() => {
-                                setForm({...form, owner: u.email});
+                                setForm({ ...form, owner: u.email });
                                 setShowSuggestions(false);
                               }}
                               className="w-full px-4 py-3 text-left hover:bg-citrus/5 transition-all flex items-center justify-between group active:scale-[0.98]"
@@ -271,16 +269,16 @@ export default function TaskModal({ isOpen, onClose, onSave, initialTask }: Task
                       )}
                     </AnimatePresence>
                   </div>
-	                </div>
-                
+                </div>
+
                 <div className="space-y-2">
                   <label className="text-[10px] font-black uppercase tracking-[0.2em] text-muted flex items-center gap-2">
                     <MapPin className="w-3 h-3" />
                     <span>Regional Hub</span>
                   </label>
-                  <select 
+                  <select
                     value={form.office || defaultOffice}
-                    onChange={e => setForm({...form, office: e.target.value})}
+                    onChange={e => setForm({ ...form, office: e.target.value })}
                     className="w-full bg-stone/50 border border-dawn rounded-xl px-4 py-3 text-sm font-bold focus:border-citrus outline-none"
                   >
                     {[...new Set([form.office, ...officeOptions.map(o => o.name)])].filter(Boolean).map(o => <option key={o} value={o}>{o}</option>)}
@@ -292,10 +290,10 @@ export default function TaskModal({ isOpen, onClose, onSave, initialTask }: Task
                     <Calendar className="w-3 h-3" />
                     <span>Commitment Date</span>
                   </label>
-                  <input 
+                  <input
                     type="datetime-local"
                     value={form.due || ''}
-                    onChange={e => setForm({...form, due: e.target.value})}
+                    onChange={e => setForm({ ...form, due: e.target.value })}
                     className="w-full bg-stone/50 border border-dawn rounded-xl px-4 py-3 text-sm font-bold focus:border-citrus outline-none"
                   />
                 </div>
@@ -312,12 +310,11 @@ export default function TaskModal({ isOpen, onClose, onSave, initialTask }: Task
                       <button
                         key={p}
                         type="button"
-                        onClick={() => setForm({...form, priority: p})}
-                        className={`flex-1 py-3 rounded-xl text-[10px] font-black border transition-all ${
-                          form.priority === p 
-                            ? 'bg-ink text-white border-ink shadow-md' 
-                            : 'bg-white text-muted border-dawn hover:border-citrus'
-                        }`}
+                        onClick={() => setForm({ ...form, priority: p })}
+                        className={`flex-1 py-3 rounded-xl text-[10px] font-black border transition-all ${form.priority === p
+                          ? 'bg-ink text-white border-ink shadow-md'
+                          : 'bg-white text-muted border-dawn hover:border-citrus'
+                          }`}
                       >
                         {p}
                       </button>
@@ -330,9 +327,9 @@ export default function TaskModal({ isOpen, onClose, onSave, initialTask }: Task
                     <Zap className="w-3 h-3" />
                     <span>Current Status</span>
                   </label>
-                  <select 
+                  <select
                     value={form.status || Status.BACKLOG}
-                    onChange={e => setForm({...form, status: e.target.value as Status})}
+                    onChange={e => setForm({ ...form, status: e.target.value as Status })}
                     className="w-full bg-stone/50 border border-dawn rounded-xl px-4 py-3 text-sm font-bold focus:border-citrus outline-none"
                   >
                     {Object.values(Status).map(s => <option key={s} value={s}>{s}</option>)}
@@ -341,11 +338,11 @@ export default function TaskModal({ isOpen, onClose, onSave, initialTask }: Task
 
                 <div className="p-4 bg-citrus/5 rounded-2xl border border-citrus/10 mt-auto">
                   <label className="flex items-center gap-3 cursor-pointer group">
-                    <input 
-                      type="checkbox" 
+                    <input
+                      type="checkbox"
                       className="w-5 h-5 accent-citrus"
                       checked={form.carry}
-                      onChange={e => setForm({...form, carry: e.target.checked})}
+                      onChange={e => setForm({ ...form, carry: e.target.checked })}
                     />
                     <div>
                       <span className="block text-xs font-bold text-ink">Carry over to next shift</span>
@@ -362,7 +359,7 @@ export default function TaskModal({ isOpen, onClose, onSave, initialTask }: Task
                   <Info className="w-3 h-3" />
                   <span>Detailed Notes & Description</span>
                 </label>
-                <button 
+                <button
                   type="button"
                   onClick={() => handleAISuggest('details')}
                   disabled={!form.title || isSuggesting}
@@ -372,9 +369,9 @@ export default function TaskModal({ isOpen, onClose, onSave, initialTask }: Task
                   <span>Draft Notes via AI</span>
                 </button>
               </div>
-              <textarea 
+              <textarea
                 value={form.details || ''}
-                onChange={e => setForm({...form, details: e.target.value})}
+                onChange={e => setForm({ ...form, details: e.target.value })}
                 placeholder="Provide any additional context, background, or detailed notes for this outcome..."
                 className="w-full bg-stone/50 border border-dawn rounded-2xl px-6 py-4 text-sm font-medium focus:border-citrus outline-none min-h-[100px]"
               />
@@ -385,9 +382,9 @@ export default function TaskModal({ isOpen, onClose, onSave, initialTask }: Task
                 <Bell className="w-3 h-3" />
                 <span>Operational Reminders</span>
               </label>
-              
+
               <div className="flex gap-2">
-                <input 
+                <input
                   type="datetime-local"
                   value={reminderTime}
                   onChange={e => setReminderTime(e.target.value)}
@@ -397,7 +394,7 @@ export default function TaskModal({ isOpen, onClose, onSave, initialTask }: Task
                   type="button"
                   onClick={() => {
                     const newReminder: Reminder = { time: reminderTime, triggered: false };
-                    setForm({...form, reminders: [...(form.reminders || []), newReminder]});
+                    setForm({ ...form, reminders: [...(form.reminders || []), newReminder] });
                   }}
                   className="px-4 py-2 bg-amber-500 text-white rounded-xl text-[10px] font-black uppercase tracking-widest hover:bg-amber-600 transition-colors shadow-sm"
                 >
@@ -420,7 +417,7 @@ export default function TaskModal({ isOpen, onClose, onSave, initialTask }: Task
                         onClick={() => {
                           const newReminders = [...(form.reminders || [])];
                           newReminders.splice(i, 1);
-                          setForm({...form, reminders: newReminders});
+                          setForm({ ...form, reminders: newReminders });
                         }}
                         className="p-1.5 text-amber-300 hover:text-red-500 transition-colors"
                       >
@@ -434,16 +431,16 @@ export default function TaskModal({ isOpen, onClose, onSave, initialTask }: Task
           </form>
 
           <footer className="px-8 py-6 bg-stone/50 border-t border-dawn flex justify-end gap-3">
-            <button 
+            <button
               type="button"
               onClick={onClose}
               className="px-6 py-2.5 text-sm font-bold text-muted hover:text-ink transition-colors"
             >
               Cancel
             </button>
-            <button 
+            <button
               onClick={handleSubmit}
-	              className="px-8 py-2.5 bg-ink text-white rounded-xl text-sm font-bold hover:scale-[1.02] transition-all disabled:opacity-50 disabled:scale-100 disabled:cursor-not-allowed"
+              className="px-8 py-2.5 bg-ink text-white rounded-xl text-sm font-bold hover:scale-[1.02] transition-all disabled:opacity-50 disabled:scale-100 disabled:cursor-not-allowed"
             >
               {initialTask ? 'Save Changes' : 'Confirm Outcome'}
             </button>
