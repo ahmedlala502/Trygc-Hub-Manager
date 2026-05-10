@@ -105,7 +105,7 @@ const PRESET_ROLES = [
 ];
 
 export default function Settings({ activeTab: controlledTab, setActiveTab: setControlledTab }: SettingsProps) {
-  const { user, settings, members, tasks, handovers, auditLogs, updateSettings, updateUser, addMember, updateMember, deleteMember, exportWorkspace, importData, resetData, isSuperAdmin, hasAdminAccess, lock, logout } = useLocalData();
+  const { user, settings, members, tasks, handovers, auditLogs, updateSettings, updateUser, addMember, updateMember, deleteMember, exportWorkspace, importData, resetData, isMasterAdmin, lock, logout } = useLocalData();
   const [internalTab, setInternalTab] = useState(controlledTab || 'general');
   const activeTab = controlledTab || internalTab;
   const setActiveTab = setControlledTab || setInternalTab;
@@ -142,7 +142,7 @@ export default function Settings({ activeTab: controlledTab, setActiveTab: setCo
   const [newProvider, setNewProvider] = useState<Partial<CustomProvider>>({ name: '', baseUrl: '', defaultModel: '' });
   const [copiedMcp, setCopiedMcp] = useState(false);
   const [selectedRole, setSelectedRole] = useState('Super Admin');
-  const canManageWorkspace = isSuperAdmin || hasAdminAccess;
+  const canManageWorkspace = isMasterAdmin;
   const visibleTabs = useMemo(
     () => settingTabs.filter(tab => canManageWorkspace || tab.id === 'profile'),
     [canManageWorkspace]
@@ -443,20 +443,22 @@ export default function Settings({ activeTab: controlledTab, setActiveTab: setCo
           </div>
         </div>
         <div className="flex items-center gap-3">
-          {hasUnsaved && !saving && (
+          {canManageWorkspace && hasUnsaved && !saving && (
             <span className="text-[9px] font-black uppercase tracking-widest text-amber-600 flex items-center gap-1.5">
               <span className="w-1.5 h-1.5 rounded-full bg-amber-400 inline-block" />
               Unsaved changes
             </span>
           )}
-          <button
-            onClick={() => saveConfig()}
-            disabled={saving}
-            className={`relative flex items-center gap-2 px-5 py-2.5 rounded-xl text-[10px] font-black uppercase tracking-widest hover:scale-[1.02] transition-all disabled:opacity-50 ${saveFlash ? 'bg-green-500 text-white' : hasUnsaved ? 'bg-amber-500 text-white' : 'bg-ink text-white'}`}
-          >
-            {saveFlash ? <CheckCircle2 className="w-3.5 h-3.5" /> : <Save className="w-3.5 h-3.5" />}
-            <span>{saving ? 'Saving...' : saveFlash ? 'Saved!' : hasUnsaved ? 'Save Changes' : 'Save Config'}</span>
-          </button>
+          {canManageWorkspace && (
+            <button
+              onClick={() => saveConfig()}
+              disabled={saving}
+              className={`relative flex items-center gap-2 px-5 py-2.5 rounded-xl text-[10px] font-black uppercase tracking-widest hover:scale-[1.02] transition-all disabled:opacity-50 ${saveFlash ? 'bg-green-500 text-white' : hasUnsaved ? 'bg-amber-500 text-white' : 'bg-ink text-white'}`}
+            >
+              {saveFlash ? <CheckCircle2 className="w-3.5 h-3.5" /> : <Save className="w-3.5 h-3.5" />}
+              <span>{saving ? 'Saving...' : saveFlash ? 'Saved!' : hasUnsaved ? 'Save Changes' : 'Save Config'}</span>
+            </button>
+          )}
         </div>
       </div>
 
@@ -490,12 +492,12 @@ export default function Settings({ activeTab: controlledTab, setActiveTab: setCo
                 {/* Profile form */}
                 <div className="grid grid-cols-2 gap-6">
                   <Field label="Full Name"><input className={inputClass} value={profile.name} onChange={e => setProfile({ ...profile, name: e.target.value })} /></Field>
-                  <Field label="Role"><input className={inputClass} value={profile.role} onChange={e => setProfile({ ...profile, role: e.target.value })} /></Field>
+                  <Field label="Role"><input className={inputClass} value={profile.role} onChange={e => setProfile({ ...profile, role: e.target.value })} disabled={!isMasterAdmin} /></Field>
                   <Field label="Office"><input className={inputClass} value={profile.office} onChange={e => setProfile({ ...profile, office: e.target.value })} /></Field>
                   <Field label="Country"><input className={inputClass} value={profile.country} onChange={e => setProfile({ ...profile, country: e.target.value })} /></Field>
-                  <Field label="Email"><input className={inputClass} value={profile.email} onChange={e => setProfile({ ...profile, email: e.target.value })} /></Field>
+                  <Field label="Email"><input className={inputClass} value={profile.email} onChange={e => setProfile({ ...profile, email: e.target.value })} disabled={isMasterAdmin} /></Field>
                   <Field label="Passcode">
-                    <input className={inputClass} type="password" value={profile.password || ''} onChange={e => setProfile({ ...profile, password: e.target.value })} placeholder="Set your passcode" />
+                    <input className={inputClass} type="password" value={profile.password || ''} onChange={e => setProfile({ ...profile, password: e.target.value })} placeholder="Set your passcode" disabled={isMasterAdmin} />
                   </Field>
                 </div>
                 <button onClick={saveProfile} className="px-8 py-3 bg-ink text-white rounded-xl text-xs font-black uppercase tracking-widest hover:scale-[1.02] transition-all">Save Profile</button>
@@ -822,8 +824,8 @@ export default function Settings({ activeTab: controlledTab, setActiveTab: setCo
                     </div>
                   </div>
                   <div className="flex items-center gap-2">
-                    {isSuperAdmin && <span className="px-2 py-1 bg-citrus/10 text-citrus rounded-lg text-[9px] font-black uppercase tracking-widest">Super Admin</span>}
-                    {!isSuperAdmin && isAdmin && <span className="px-2 py-1 bg-amber-50 text-amber-600 rounded-lg text-[9px] font-black uppercase tracking-widest">Admin</span>}
+                    {isMasterAdmin && <span className="px-2 py-1 bg-citrus/10 text-citrus rounded-lg text-[9px] font-black uppercase tracking-widest">Master Admin</span>}
+                    {!isMasterAdmin && isAdmin && <span className="px-2 py-1 bg-amber-50 text-amber-600 rounded-lg text-[9px] font-black uppercase tracking-widest">Admin</span>}
                     <span className="px-2 py-1 bg-green-50 text-green-600 rounded-lg text-[9px] font-black uppercase tracking-widest">Active</span>
                   </div>
                 </div>
@@ -867,7 +869,7 @@ export default function Settings({ activeTab: controlledTab, setActiveTab: setCo
                       </button>
                     )}
                   </div>
-                  {isSuperAdmin && (
+                  {isMasterAdmin && (
                     <>
                       <button
                         onClick={() => {
@@ -1075,7 +1077,7 @@ export default function Settings({ activeTab: controlledTab, setActiveTab: setCo
                               ) : (
                                 <button
                                   onClick={() => setDeleteConfirmId(m.id)}
-                                  disabled={isCurrentUser || (m.role === 'Super Admin' && !isSuperAdmin)}
+                                  disabled={isCurrentUser || (m.role === 'Super Admin' && !isMasterAdmin)}
                                   className="p-2 rounded-lg text-muted hover:text-red-500 hover:bg-red-50 transition-all disabled:opacity-30 disabled:cursor-not-allowed"
                                   title="Delete"
                                 >

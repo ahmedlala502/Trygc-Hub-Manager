@@ -1,5 +1,5 @@
 import { Handover, Member, Office, Priority, Shift, Status, Task, User, AuthState } from '../types';
-import { INITIAL_HANDOVERS, INITIAL_MEMBERS, INITIAL_TASKS, INITIAL_USER, OFFICES, TEAMS, SUPER_ADMIN_PASSWORD } from '../constants';
+import { INITIAL_HANDOVERS, INITIAL_MEMBERS, INITIAL_TASKS, INITIAL_USER, MASTER_ADMIN_EMAIL, MASTER_ADMIN_PASSWORD, OFFICES, TEAMS, SUPER_ADMIN_PASSWORD } from '../constants';
 import { DEFAULT_ROLE_PERMISSIONS, DEFAULT_WIDGET_CONFIG, RolePermissionMap, WidgetConfig } from './accessControl';
 
 export interface CustomProvider {
@@ -91,12 +91,27 @@ export function hasAdminAccess(role: string): boolean {
   return r.includes('super admin') || r.includes('admin') || r.includes('manager') || r.includes('lead') || r.includes('head') || r.includes('director') || r.includes('general');
 }
 
+function migrateMasterUser(user?: User): User {
+  const seed = user || INITIAL_USER;
+  const shouldBeMaster = seed.isSuperAdmin === true || seed.role === 'Super Admin';
+
+  if (!shouldBeMaster) return seed;
+
+  return {
+    ...seed,
+    email: MASTER_ADMIN_EMAIL,
+    password: MASTER_ADMIN_PASSWORD,
+    isSuperAdmin: true,
+    role: 'Super Admin',
+  };
+}
+
 export function importWorkspace(jsonData: string): LocalWorkspace | null {
   try {
     const data = JSON.parse(jsonData) as Partial<LocalWorkspace>;
     if (!data.tasks && !data.members && !data.offices) return null;
     return {
-      user: data.user || INITIAL_USER,
+      user: migrateMasterUser(data.user || INITIAL_USER),
       tasks: data.tasks || [],
       handovers: data.handovers || [],
       offices: data.offices || [],
@@ -158,7 +173,7 @@ export function loadWorkspace(): LocalWorkspace {
     const parsed = JSON.parse(raw) as Partial<LocalWorkspace>;
     const seed = createWorkspace();
     return {
-      user: parsed.user || seed.user,
+      user: migrateMasterUser(parsed.user || seed.user),
       tasks: parsed.tasks?.length ? parsed.tasks : seed.tasks,
       handovers: parsed.handovers || seed.handovers,
       offices: parsed.offices?.length ? parsed.offices : seed.offices,

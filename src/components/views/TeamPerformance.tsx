@@ -26,7 +26,7 @@ const emptyForm: MemberForm = {
 };
 
 export default function TeamPerformance({ members, offices, tasks, handovers }: TeamPerformanceProps) {
-  const { addMember, updateMember, deleteMember } = useLocalData();
+  const { addMember, updateMember, deleteMember, isMasterAdmin } = useLocalData();
   const [filter, setFilter] = useState('');
   const [editingMember, setEditingMember] = useState<Member | null>(null);
   const [isModalOpen, setIsModalOpen] = useState(false);
@@ -201,13 +201,15 @@ export default function TeamPerformance({ members, offices, tasks, handovers }: 
             className="pl-10 pr-4 py-2.5 bg-white border border-dawn rounded-xl text-xs font-bold focus:outline-none focus:ring-2 focus:ring-citrus/20 w-full md:w-80 shadow-sm"
           />
         </div>
-        <button
-          onClick={openCreate}
-          className="flex items-center justify-center gap-2 px-6 py-2.5 bg-ink text-white rounded-xl font-bold text-xs shadow-lg shadow-ink/10 hover:scale-[1.02] transition-all"
-        >
-          <Plus className="w-3.5 h-3.5" />
-          <span>Add Member</span>
-        </button>
+        {isMasterAdmin && (
+          <button
+            onClick={openCreate}
+            className="flex items-center justify-center gap-2 px-6 py-2.5 bg-ink text-white rounded-xl font-bold text-xs shadow-lg shadow-ink/10 hover:scale-[1.02] transition-all"
+          >
+            <Plus className="w-3.5 h-3.5" />
+            <span>Add Member</span>
+          </button>
+        )}
       </section>
 
       <section className="glass-card p-0 overflow-hidden">
@@ -262,16 +264,18 @@ export default function TeamPerformance({ members, offices, tasks, handovers }: 
                     </div>
                   </td>
                   <td className="px-6 py-5 text-right">
-                    <div className="flex items-center justify-end gap-2 opacity-0 group-hover:opacity-100 transition-opacity">
-                      <button onClick={() => openEdit(member)} className="p-2 hover:bg-white rounded-lg transition-colors text-muted hover:text-citrus">
-                        <Edit className="w-4 h-4" />
-                      </button>
-                      {!member.id.startsWith('derived-') && (
-                        <button onClick={() => deleteMemberRecord(member)} className="p-2 hover:bg-white rounded-lg transition-colors text-muted hover:text-red-500">
-                          <Trash2 className="w-4 h-4" />
+                    {isMasterAdmin && (
+                      <div className="flex items-center justify-end gap-2 opacity-0 group-hover:opacity-100 transition-opacity">
+                        <button onClick={() => openEdit(member)} className="p-2 hover:bg-white rounded-lg transition-colors text-muted hover:text-citrus">
+                          <Edit className="w-4 h-4" />
                         </button>
-                      )}
-                    </div>
+                        {!member.id.startsWith('derived-') && (
+                          <button onClick={() => deleteMemberRecord(member)} className="p-2 hover:bg-white rounded-lg transition-colors text-muted hover:text-red-500">
+                            <Trash2 className="w-4 h-4" />
+                          </button>
+                        )}
+                      </div>
+                    )}
                   </td>
                 </tr>
               );

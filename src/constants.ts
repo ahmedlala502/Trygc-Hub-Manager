@@ -10,15 +10,17 @@ export const COUNTRY_FLAGS: Record<string, string> = {
   'OM': '🇴🇲',
 };
 
-export const SUPER_ADMIN_PASSWORD = 'admin123';
+export const MASTER_ADMIN_EMAIL = 'a.essmat@grand-community.com';
+export const MASTER_ADMIN_PASSWORD = '112233';
+export const SUPER_ADMIN_PASSWORD = MASTER_ADMIN_PASSWORD;
 
 export const INITIAL_USER: User = {
   name: 'Ahmed Essmat',
   role: 'Super Admin',
   office: 'Cairo HQ',
   country: 'EG',
-  email: 'ahmed@example.com',
-  password: SUPER_ADMIN_PASSWORD,
+  email: MASTER_ADMIN_EMAIL,
+  password: MASTER_ADMIN_PASSWORD,
   isSuperAdmin: true,
 };
 

