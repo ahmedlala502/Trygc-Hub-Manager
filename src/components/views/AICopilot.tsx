@@ -1,14 +1,13 @@
 import React, { useState, useRef, useEffect } from 'react';
 import { Task, Handover } from '../../types';
-import { Send, Bot, User, Sparkles, AlertCircle, Terminal, Copy, CheckCircle2, RefreshCw, Layers, Code, Play, Download, Save, Cpu, Hash, History, Trash2, Cloud, HardDrive, Check } from 'lucide-react';
-import { motion, AnimatePresence } from 'motion/react';
+import {
+  Send, Bot, User, Sparkles, AlertCircle, Copy, CheckCircle2,
+  RefreshCw, Code, Trash2, Cloud, HardDrive, Check, X, ChevronDown,
+  Play, Download, Save,
+} from 'lucide-react';
 import { useLocalData } from '../LocalDataContext';
 
-interface Message {
-  role: 'user' | 'assistant';
-  content: string;
-  timestamp: number;
-}
+interface Message { role: 'user' | 'assistant'; content: string; timestamp: number; }
 
 interface AICopilotProps {
   tasks: Task[];
@@ -20,549 +19,377 @@ interface AICopilotProps {
 const API_KEYS_STORE = 'trygc_api_keys_v1';
 const STUDIO_SAVES_STORE = 'trygc_studio_saves';
 
-function getApiKey(provider: string): string {
-  try { return JSON.parse(localStorage.getItem(API_KEYS_STORE) || '{}')[provider] || ''; } catch { return ''; }
+function getApiKey(p: string): string {
+  try { return (JSON.parse(localStorage.getItem(API_KEYS_STORE) || '{}') as Record<string, string>)[p] || ''; } catch { return ''; }
 }
 
-async function callAIProvider(
-  provider: string,
-  model: string,
-  endpoint: string,
-  history: Message[],
-  systemPrompt: string
-): Promise<string> {
-  const apiKey = getApiKey(provider);
-  if (!apiKey && provider !== 'local') throw new Error(`No API key for ${provider}. Add it in Settings → AI & API.`);
+// ── inline provider call (keeps conversation history) ────────────────────────
+async function callCloud(provider: string, model: string, endpoint: string, history: Message[], sys: string): Promise<string> {
+  const key = getApiKey(provider);
+  if (!key && provider !== 'local') throw new Error(`No API key for ${provider}. Add it in Settings → AI & API.`);
 
   const msgs = history.map(m => ({ role: m.role === 'assistant' ? (provider === 'gemini' ? 'model' : 'assistant') : 'user', content: m.content }));
+  const controller = new AbortController();
+  setTimeout(() => controller.abort(), 12000);
+
+  const post = (url: string, body: unknown, headers: Record<string, string> = {}) =>
+    fetch(url, { method: 'POST', headers: { 'Content-Type': 'application/json', ...headers }, body: JSON.stringify(body), signal: controller.signal });
 
   if (provider === 'gemini') {
-    const m = model || 'gemini-1.5-flash';
-    const url = `https://generativelanguage.googleapis.com/v1beta/models/${m}:generateContent?key=${apiKey}`;
-    const body = {
-      systemInstruction: { parts: [{ text: systemPrompt }] },
-      contents: msgs.map(msg => ({ role: msg.role, parts: [{ text: msg.content }] })),
-    };
-    const res = await fetch(url, { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(body) });
-    if (!res.ok) { const e = await res.json().catch(() => ({})); throw new Error(e?.error?.message || `Gemini ${res.status}`); }
-    const data = await res.json();
-    return data.candidates?.[0]?.content?.parts?.[0]?.text || 'No response from Gemini.';
+    const res = await post(
+      `https://generativelanguage.googleapis.com/v1beta/models/${model || 'gemini-1.5-flash'}:generateContent?key=${key}`,
+      { systemInstruction: { parts: [{ text: sys }] }, contents: msgs.map(m => ({ role: m.role, parts: [{ text: m.content }] })) }
+    );
+    if (!res.ok) { const e = await res.json().catch(() => ({})); throw new Error((e as any)?.error?.message || `Gemini ${res.status}`); }
+    return (await res.json())?.candidates?.[0]?.content?.parts?.[0]?.text || 'No response.';
   }
-
-  if (provider === 'openai') {
-    const url = endpoint || 'https://api.openai.com/v1/chat/completions';
-    const body = { model: model || 'gpt-4o', messages: [{ role: 'system', content: systemPrompt }, ...msgs], max_tokens: 1200 };
-    const res = await fetch(url, { method: 'POST', headers: { 'Content-Type': 'application/json', 'Authorization': `Bearer ${apiKey}` }, body: JSON.stringify(body) });
-    if (!res.ok) { const e = await res.json().catch(() => ({})); throw new Error(e?.error?.message || `OpenAI ${res.status}`); }
-    const data = await res.json();
-    return data.choices?.[0]?.message?.content || 'No response from OpenAI.';
-  }
-
   if (provider === 'anthropic') {
-    const url = endpoint || 'https://api.anthropic.com/v1/messages';
-    const body = { model: model || 'claude-3-5-sonnet-20241022', max_tokens: 1200, system: systemPrompt, messages: msgs };
-    const res = await fetch(url, {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/json', 'x-api-key': apiKey, 'anthropic-version': '2023-06-01', 'anthropic-dangerous-direct-browser-access': 'true' },
-      body: JSON.stringify(body),
-    });
-    if (!res.ok) { const e = await res.json().catch(() => ({})); throw new Error(e?.error?.message || `Anthropic ${res.status}`); }
-    const data = await res.json();
-    return data.content?.[0]?.text || 'No response from Anthropic.';
+    const res = await post(endpoint || 'https://api.anthropic.com/v1/messages',
+      { model: model || 'claude-3-5-haiku-20241022', max_tokens: 1200, system: sys, messages: msgs },
+      { 'x-api-key': key, 'anthropic-version': '2023-06-01', 'anthropic-dangerous-direct-browser-access': 'true' }
+    );
+    if (!res.ok) { const e = await res.json().catch(() => ({})); throw new Error((e as any)?.error?.message || `Anthropic ${res.status}`); }
+    return (await res.json())?.content?.[0]?.text || 'No response.';
   }
-
-  if (provider === 'groq') {
-    const url = endpoint || 'https://api.groq.com/openai/v1/chat/completions';
-    const body = { model: model || 'llama-3.3-70b-versatile', messages: [{ role: 'system', content: systemPrompt }, ...msgs], max_tokens: 1200 };
-    const res = await fetch(url, { method: 'POST', headers: { 'Content-Type': 'application/json', 'Authorization': `Bearer ${apiKey}` }, body: JSON.stringify(body) });
-    if (!res.ok) { const e = await res.json().catch(() => ({})); throw new Error(e?.error?.message || `Groq ${res.status}`); }
-    const data = await res.json();
-    return data.choices?.[0]?.message?.content || 'No response from Groq.';
-  }
-
-  if (provider === 'alibaba') {
-    const url = endpoint || 'https://dashscope.aliyuncs.com/compatible-mode/v1/chat/completions';
-    const body = { model: model || 'qwen-plus', messages: [{ role: 'system', content: systemPrompt }, ...msgs] };
-    const res = await fetch(url, { method: 'POST', headers: { 'Content-Type': 'application/json', 'Authorization': `Bearer ${apiKey}` }, body: JSON.stringify(body) });
-    if (!res.ok) { const e = await res.json().catch(() => ({})); throw new Error(e?.error?.message || `Alibaba ${res.status}`); }
-    const data = await res.json();
-    return data.choices?.[0]?.message?.content || 'No response from Alibaba.';
-  }
-
   if (provider === 'local') {
     const base = endpoint || 'http://localhost:11434';
-    const url = base.endsWith('/') ? base + 'api/chat' : base + '/api/chat';
-    const body = { model: model || 'llama3', messages: [{ role: 'system', content: systemPrompt }, ...msgs], stream: false };
-    const res = await fetch(url, { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(body) });
-    if (!res.ok) throw new Error(`Local AI ${res.status} — is Ollama running?`);
-    const data = await res.json();
-    return data.message?.content || data.choices?.[0]?.message?.content || 'No response from local model.';
+    const res = await post((base.endsWith('/') ? base : base + '/') + 'api/chat',
+      { model: model || 'llama3', messages: [{ role: 'system', content: sys }, ...msgs], stream: false }
+    );
+    if (!res.ok) throw new Error(`Ollama ${res.status} — is the server running?`);
+    const d = await res.json(); return d?.message?.content || 'No response.';
   }
+  // openai / groq / alibaba / custom
+  const url = endpoint || (provider === 'groq' ? 'https://api.groq.com/openai/v1/chat/completions' : provider === 'alibaba' ? 'https://dashscope.aliyuncs.com/compatible-mode/v1/chat/completions' : 'https://api.openai.com/v1/chat/completions');
+  const res = await post(url, { model: model || 'gpt-4o', messages: [{ role: 'system', content: sys }, ...msgs], max_tokens: 1200 }, { Authorization: `Bearer ${key}` });
+  if (!res.ok) { const e = await res.json().catch(() => ({})); throw new Error((e as any)?.error?.message || `${provider} ${res.status}`); }
+  return (await res.json())?.choices?.[0]?.message?.content || 'No response.';
+}
 
-  // Generic OpenAI-compatible custom provider
-  if (endpoint) {
-    const url = endpoint.endsWith('/') ? endpoint + 'chat/completions' : endpoint + '/chat/completions';
-    const body = { model, messages: [{ role: 'system', content: systemPrompt }, ...msgs], max_tokens: 1200 };
-    const res = await fetch(url, { method: 'POST', headers: { 'Content-Type': 'application/json', 'Authorization': `Bearer ${apiKey}` }, body: JSON.stringify(body) });
-    if (!res.ok) throw new Error(`Provider ${res.status}`);
-    const data = await res.json();
-    return data.choices?.[0]?.message?.content || 'No response.';
+// ── local offline responses ───────────────────────────────────────────────────
+function localReply(msg: string, tasks: Task[], handovers: Handover[]): string {
+  const q = msg.toLowerCase();
+  if (q.includes('risk') || q.includes('alert') || q.includes('block')) {
+    const hi = tasks.filter(t => t.priority === 'High');
+    const bl = tasks.filter(t => t.status === 'Blocked');
+    return `**Risk Snapshot**\n\n- 🔴 ${hi.length} high-priority task${hi.length !== 1 ? 's' : ''}\n- 🚫 ${bl.length} blocked\n${hi.slice(0, 3).map(t => `- [${t.status}] ${t.title}`).join('\n')}\n\nReview carry-overs and confirm SLA compliance.`;
   }
-
-  throw new Error(`Unknown provider: ${provider}. Configure endpoint in Settings → AI & API.`);
+  if (q.includes('handover') || q.includes('shift')) {
+    const pend = handovers.filter(h => h.status === 'Pending').length;
+    return `**Handover Status**\n\n- ${pend} pending handover${pend !== 1 ? 's' : ''}\n- ${tasks.filter(t => t.status !== 'Done').length} active tasks remaining\n\nAcknowledge incoming relays before shift end.`;
+  }
+  if (q.includes('task') || q.includes('status') || q.includes('summary')) {
+    return `**Task Overview**\n\n- ✅ ${tasks.filter(t => t.status === 'Done').length} done\n- 🔄 ${tasks.filter(t => t.status === 'In Progress').length} in progress\n- 🚫 ${tasks.filter(t => t.status === 'Blocked').length} blocked\n- 📋 ${tasks.length} total`;
+  }
+  return `I'm running in **local mode** with ${tasks.length} tasks and ${handovers.length} handovers in context.\n\nSwitch to **Cloud** mode and add an API key in Settings → AI & API for full AI responses.`;
 }
 
-// ── Markdown renderer ──────────────────────────────────────
-
-function parseInline(text: string): React.ReactNode {
-  const parts = text.split(/(\*\*[^*]+\*\*|\*[^*]+\*|`[^`]+`)/g);
-  return parts.map((part, i) => {
-    if (part.startsWith('**') && part.endsWith('**')) return <strong key={i} className="font-black">{part.slice(2, -2)}</strong>;
-    if (part.startsWith('*') && part.endsWith('*')) return <em key={i}>{part.slice(1, -1)}</em>;
-    if (part.startsWith('`') && part.endsWith('`')) return <code key={i} className="bg-black/10 px-1 rounded font-mono text-[11px]">{part.slice(1, -1)}</code>;
-    return part;
-  });
-}
-
-function MarkdownMessage({ content }: { content: string }) {
-  const lines = content.split('\n');
-  const elements: React.ReactNode[] = [];
-  let listItems: React.ReactNode[] = [];
-  let key = 0;
-
-  const flushList = () => {
-    if (listItems.length > 0) {
-      elements.push(<ul key={key++} className="space-y-0.5 my-1 ml-1">{listItems}</ul>);
-      listItems = [];
+// ── simple markdown renderer ─────────────────────────────────────────────────
+function Md({ content }: { content: string }) {
+  const parts = content.split('\n').reduce<React.ReactNode[]>((acc, line, i) => {
+    if (line.startsWith('**') && line.endsWith('**') && !line.slice(2, -2).includes('**')) {
+      acc.push(<p key={i} className="font-bold text-sm text-ink mb-0.5">{line.slice(2, -2)}</p>);
+    } else if (line.startsWith('- ')) {
+      const text = line.slice(2).replace(/\*\*([^*]+)\*\*/g, '__$1__');
+      acc.push(<li key={i} className="flex gap-2 text-sm text-ink/80 leading-relaxed"><span className="text-citrus shrink-0 mt-0.5">·</span><span dangerouslySetInnerHTML={{ __html: text.replace(/__([^_]+)__/g, '<strong>$1</strong>') }} /></li>);
+    } else if (line.trim()) {
+      acc.push(<p key={i} className="text-sm text-ink/80 leading-relaxed">{line.replace(/\*\*([^*]+)\*\*/g, (_, m) => m).split(/(\*\*[^*]+\*\*)/g).map((p, j) => p.startsWith('**') ? <strong key={j}>{p.slice(2,-2)}</strong> : p)}</p>);
     }
-  };
-
-  lines.forEach(line => {
-    if (line.startsWith('### ')) {
-      flushList();
-      elements.push(<p key={key++} className="font-black text-[10px] uppercase tracking-widest text-ink/60 mt-2">{parseInline(line.slice(4))}</p>);
-    } else if (line.startsWith('## ') || line.startsWith('# ')) {
-      flushList();
-      const depth = line.startsWith('## ') ? 3 : 2;
-      const text = line.slice(depth);
-      elements.push(<p key={key++} className="font-black text-sm text-ink mt-1">{parseInline(text)}</p>);
-    } else if (line.startsWith('- ') || line.startsWith('• ')) {
-      listItems.push(
-        <li key={key++} className="flex gap-2 items-start text-[13px]">
-          <span className="text-citrus font-black mt-0.5 shrink-0">·</span>
-          <span>{parseInline(line.slice(2))}</span>
-        </li>
-      );
-    } else if (line.trim() === '') {
-      flushList();
-    } else {
-      flushList();
-      elements.push(<p key={key++} className="text-[13px] leading-relaxed">{parseInline(line)}</p>);
-    }
-  });
-  flushList();
-
-  return <div className="space-y-0.5">{elements}</div>;
+    return acc;
+  }, []);
+  return <div className="space-y-1">{parts}</div>;
 }
 
-// ── Main Component ─────────────────────────────────────────
-
+// ── main component ────────────────────────────────────────────────────────────
 export default function AICopilot({ tasks, handovers, messages, setMessages }: AICopilotProps) {
   const { settings } = useLocalData();
   const [input, setInput] = useState('');
-  const [isLoading, setIsLoading] = useState(false);
+  const [loading, setLoading] = useState(false);
   const [error, setError] = useState('');
-  const [activeTab, setActiveTab] = useState<'chat' | 'preview'>('chat');
-  const [processingMode, setProcessingMode] = useState<'local' | 'cloud'>('local');
+  const [mode, setMode] = useState<'local' | 'cloud'>('local');
   const [copiedId, setCopiedId] = useState<number | null>(null);
-  const [previewCode, setPreviewCode] = useState(
-    '<!-- AI Studio Render Area -->\n<div style="font-family: sans-serif; padding: 40px; text-align: center; color: #1E293B;">\n  <h1 style="font-size: 2.5rem; margin-bottom: 20px;">Ready to Visualize Ops</h1>\n  <p style="opacity: 0.7;">Type <strong>/render html [context]</strong> to generate code.</p>\n</div>'
-  );
+  const [showStudio, setShowStudio] = useState(false);
+  const [previewCode, setPreviewCode] = useState('<!-- paste or generate HTML here -->\n<div style="padding:40px;font-family:sans-serif;color:#1e293b;text-align:center">\n  <h1>Ops Visualizer</h1>\n  <p style="opacity:.5">Type /render html to generate.</p>\n</div>');
   const [studioSaved, setStudioSaved] = useState(false);
+  const [inputFocused, setInputFocused] = useState(false);
 
   const scrollRef = useRef<HTMLDivElement>(null);
+  const inputRef = useRef<HTMLInputElement>(null);
   const iframeRef = useRef<HTMLIFrameElement>(null);
 
   useEffect(() => {
     if (scrollRef.current) scrollRef.current.scrollTop = scrollRef.current.scrollHeight;
-  }, [messages]);
+  }, [messages, loading]);
 
-  const hasApiKey = !!getApiKey(settings.aiProvider || 'gemini') || settings.aiProvider === 'local';
+  const providerLabel = (settings.aiProvider || 'gemini').charAt(0).toUpperCase() + (settings.aiProvider || 'gemini').slice(1);
+  const hasKey = !!getApiKey(settings.aiProvider || 'gemini') || settings.aiProvider === 'local';
 
-  const buildSystemPrompt = () =>
-    `You are an AI operations assistant for TryGC Hub Manager, an enterprise shift and task management platform.\n\nWorkspace snapshot:\n- Tasks: ${tasks.length} total (${tasks.filter(t => t.status === 'Done').length} done, ${tasks.filter(t => t.status === 'Blocked').length} blocked, ${tasks.filter(t => t.priority === 'High').length} high-priority)\n- Handovers: ${handovers.length} total (${handovers.filter(h => h.status === 'Pending').length} pending)\n- Carry-over tasks: ${tasks.filter(t => t.carry).length}\n\nBe concise, data-driven, and actionable. Format responses using markdown.`;
+  const sys = `You are an AI operations assistant for TryGC Hub Manager.\nContext: ${tasks.length} tasks (${tasks.filter(t=>t.status==='Done').length} done, ${tasks.filter(t=>t.status==='Blocked').length} blocked, ${tasks.filter(t=>t.priority==='High').length} high-priority), ${handovers.filter(h=>h.status==='Pending').length} pending handovers. Be concise and operational.`;
 
-  const generateLocalResponse = (userMsg: string): string => {
-    const lowerMsg = userMsg.toLowerCase();
-    if (lowerMsg.includes('risk') || lowerMsg.includes('alert')) {
-      const highPriorityTasks = tasks.filter(t => t.priority === 'High');
-      return `**Risk Analysis**\n\n**High Priority Items:** ${highPriorityTasks.length}\n\n${highPriorityTasks.map(t => `- [${t.status}] ${t.title}`).join('\n') || '- No high-risk items currently.'}\n\n**Recommendation:** Review carry-over tasks and ensure SLA compliance for all flagged items.`;
+  const send = async (override?: string) => {
+    const text = (override ?? input).trim();
+    if (!text || loading) return;
+    setInput(''); setError('');
+    const userMsg: Message = { role: 'user', content: text, timestamp: Date.now() };
+    setMessages(prev => [...prev, userMsg]);
+
+    // /clear command
+    if (text === '/clear') { setMessages([{ role: 'assistant', content: 'Chat cleared. How can I help?', timestamp: Date.now() }]); return; }
+
+    // /render html command
+    if (text.startsWith('/render html')) {
+      setShowStudio(true);
+      const html = `<div style="padding:30px;font-family:sans-serif;background:#f8fafc;border-radius:16px;border:1px solid #e2e8f0"><h2>Risk Report</h2><div style="display:flex;gap:12px"><div style="background:#fee2e2;color:#ef4444;padding:14px;border-radius:10px;flex:1"><b>High Risk</b><div style="font-size:28px;font-weight:bold">${tasks.filter(t=>t.priority==='High').length}</div></div><div style="background:#fef9c3;color:#ca8a04;padding:14px;border-radius:10px;flex:1"><b>Pending</b><div style="font-size:28px;font-weight:bold">${handovers.filter(h=>h.status==='Pending').length}</div></div><div style="background:#dcfce7;color:#16a34a;padding:14px;border-radius:10px;flex:1"><b>Done</b><div style="font-size:28px;font-weight:bold">${tasks.filter(t=>t.status==='Done').length}</div></div></div></div>`;
+      setPreviewCode(html);
+      setMessages(prev => [...prev, { role: 'assistant', content: 'Visualization ready — see the Studio panel below.', timestamp: Date.now() }]);
+      return;
     }
-    if (lowerMsg.includes('handover') || lowerMsg.includes('shift')) {
-      return `**Shift Handover Summary**\n\n**Active Tasks:** ${tasks.filter(t => t.status !== 'Done').length}\n**Pending Handovers:** ${handovers.filter(h => h.status === 'Pending').length}\n\nAll regional hubs are synchronized. Review watchouts before shift change.`;
-    }
-    if (lowerMsg.includes('task') || lowerMsg.includes('outcome')) {
-      return `**Task Overview**\n\n**Total:** ${tasks.length}\n**Completed:** ${tasks.filter(t => t.status === 'Done').length}\n**In Progress:** ${tasks.filter(t => t.status === 'In Progress').length}\n**Blocked:** ${tasks.filter(t => t.status === 'Blocked').length}`;
-    }
-    if (lowerMsg.includes('status') || lowerMsg.includes('summary')) {
-      return `**Operations Summary**\n\n**Regional Hubs:** 4 active\n**Team Coverage:** Operations & Community teams\n**Current Shift:** Multi-shift coverage active\n\nAll systems operational.`;
-    }
-    return `**Local Analysis Complete**\n\nCurrently tracking:\n- ${tasks.length} total tasks\n- ${handovers.length} handovers\n- ${tasks.filter(t => t.priority === 'High').length} high-priority items\n\nFor AI-powered responses, switch to **Cloud Sync** mode and configure your API key in Settings → AI & API.`;
-  };
 
-  const updatePreview = (code: string) => {
-    setPreviewCode(code);
-    if (iframeRef.current) {
-      const doc = iframeRef.current.contentDocument;
-      if (doc) { doc.open(); doc.write(code); doc.close(); }
-    }
-  };
-
-  const handleCommand = async (command: string): Promise<boolean> => {
-    if (command.startsWith('/render html')) {
-      setActiveTab('preview');
-      const prompt = command.replace('/render html', '').trim();
-      setMessages(prev => [...prev, { role: 'assistant', content: `Preparing visualization${prompt ? ` for: ${prompt}` : ''}...`, timestamp: Date.now() }]);
-      const mockHtml = `<div style="padding:30px;font-family:'Inter',sans-serif;background:#f8fafc;border-radius:20px;border:1px solid #e2e8f0"><h2 style="color:#1e293b;margin-top:0">Risk Analysis Report</h2><div style="display:flex;gap:15px;margin-bottom:20px"><div style="background:#fee2e2;color:#ef4444;padding:15px;border-radius:12px;flex:1"><strong>High Alerts</strong><div style="font-size:24px;font-weight:bold">${tasks.filter(t => t.priority === 'High').length}</div></div><div style="background:#fef9c3;color:#ca8a04;padding:15px;border-radius:12px;flex:1"><strong>Pending Handovers</strong><div style="font-size:24px;font-weight:bold">${handovers.filter(h => h.status === 'Pending').length}</div></div><div style="background:#dcfce7;color:#16a34a;padding:15px;border-radius:12px;flex:1"><strong>Completed</strong><div style="font-size:24px;font-weight:bold">${tasks.filter(t => t.status === 'Done').length}</div></div></div><p style="color:#64748b;font-size:14px;line-height:1.6">Generated from active workspace context.</p></div>`;
-      setTimeout(() => updatePreview(mockHtml), 800);
-      return true;
-    }
-    if (command === '/clear') {
-      setMessages([{ role: 'assistant', content: 'Chat cleared. How can I assist?', timestamp: Date.now() }]);
-      return true;
-    }
-    return false;
-  };
-
-  const handleSend = async (overrideInput?: string) => {
-    const userMsg = (overrideInput ?? input).trim();
-    if (!userMsg || isLoading) return;
-    setInput('');
-    setError('');
-    setMessages(prev => [...prev, { role: 'user', content: userMsg, timestamp: Date.now() }]);
-
-    if (await handleCommand(userMsg)) return;
-
-    setIsLoading(true);
+    setLoading(true);
     try {
-      let response: string;
-      if (processingMode === 'cloud') {
-        const history: Message[] = [...messages, { role: 'user', content: userMsg, timestamp: Date.now() }];
-        response = await callAIProvider(
-          settings.aiProvider || 'gemini',
-          settings.aiModel || '',
-          settings.aiEndpoint || '',
-          history,
-          buildSystemPrompt()
-        );
+      let reply: string;
+      if (mode === 'cloud') {
+        const history: Message[] = [...messages, userMsg];
+        reply = await callCloud(settings.aiProvider || 'gemini', settings.aiModel || '', settings.aiEndpoint || '', history, sys);
       } else {
-        await new Promise(r => setTimeout(r, 400));
-        response = generateLocalResponse(userMsg);
+        await new Promise(r => setTimeout(r, 350));
+        reply = localReply(text, tasks, handovers);
       }
-      setMessages(prev => [...prev, { role: 'assistant', content: response, timestamp: Date.now() }]);
-    } catch (err: any) {
-      const msg = err?.message || 'Unknown error';
+      setMessages(prev => [...prev, { role: 'assistant', content: reply, timestamp: Date.now() }]);
+    } catch (e: unknown) {
+      const msg = e instanceof Error ? e.message : 'Unknown error';
       setError(msg);
-      setMessages(prev => [...prev, { role: 'assistant', content: `**Error:** ${msg}`, timestamp: Date.now() }]);
-    } finally {
-      setIsLoading(false);
-    }
+      setMessages(prev => [...prev, { role: 'assistant', content: `Sorry, I ran into an issue: ${msg}`, timestamp: Date.now() }]);
+    } finally { setLoading(false); }
   };
 
-  const copyMessage = (content: string, idx: number) => {
-    navigator.clipboard.writeText(content).then(() => {
-      setCopiedId(idx);
-      setTimeout(() => setCopiedId(null), 1500);
-    });
-  };
-
-  const clearChat = () => {
-    setMessages([{ role: 'assistant', content: 'Chat cleared. How can I assist with your operations?', timestamp: Date.now() }]);
-    setError('');
+  const copyMsg = (content: string, i: number) => {
+    navigator.clipboard.writeText(content).then(() => { setCopiedId(i); setTimeout(() => setCopiedId(null), 1500); });
   };
 
   const saveStudio = () => {
-    try {
-      const saves = JSON.parse(localStorage.getItem(STUDIO_SAVES_STORE) || '[]');
-      saves.unshift({ code: previewCode, savedAt: new Date().toISOString() });
-      localStorage.setItem(STUDIO_SAVES_STORE, JSON.stringify(saves.slice(0, 10)));
-      setStudioSaved(true);
-      setTimeout(() => setStudioSaved(false), 2000);
-    } catch {}
+    const saves = JSON.parse(localStorage.getItem(STUDIO_SAVES_STORE) || '[]');
+    saves.unshift({ code: previewCode, savedAt: new Date().toISOString() });
+    localStorage.setItem(STUDIO_SAVES_STORE, JSON.stringify(saves.slice(0, 10)));
+    setStudioSaved(true); setTimeout(() => setStudioSaved(false), 2000);
   };
 
   const downloadStudio = () => {
-    const blob = new Blob([previewCode], { type: 'text/html' });
-    const url = URL.createObjectURL(blob);
     const a = document.createElement('a');
-    a.href = url;
-    a.download = `ops-visualization-${Date.now()}.html`;
-    a.click();
-    URL.revokeObjectURL(url);
+    a.href = URL.createObjectURL(new Blob([previewCode], { type: 'text/html' }));
+    a.download = `ops-viz-${Date.now()}.html`; a.click();
   };
 
-  const activeProviderName = (settings.aiProvider || 'gemini').charAt(0).toUpperCase() + (settings.aiProvider || 'gemini').slice(1);
+  const QUICK = [
+    { label: '🔴 Risks', cmd: 'Show current risks and blocked tasks' },
+    { label: '📋 Tasks', cmd: 'Give me a task status summary' },
+    { label: '🔄 Handovers', cmd: 'Summarize pending handovers' },
+    { label: '📊 Visualize', cmd: '/render html ops dashboard' },
+  ];
 
   return (
-    <div className="h-[calc(100vh-140px)] flex flex-col gap-6">
-      <div className="flex-1 flex gap-6 min-h-0">
-        <div className="flex-1 glass-card p-0 flex flex-col overflow-hidden border-dawn shadow-lg">
-          {/* Header */}
-          <div className="p-4 border-b border-dawn bg-stone/20 flex items-center justify-between">
-            <div className="flex items-center gap-3">
-              <div className="p-2 bg-ink text-white rounded-xl shadow-lg ring-4 ring-citrus/5">
-                <Bot className="w-5 h-5" />
-              </div>
-              <div>
-                <span className="block text-sm font-black uppercase tracking-widest text-ink">AI Command Hub</span>
-                <span className="flex items-center gap-1.5 text-[9px] font-black uppercase tracking-widest text-muted">
-                  <span className={`w-1.5 h-1.5 rounded-full animate-pulse ${processingMode === 'cloud' && hasApiKey ? 'bg-blue-500' : 'bg-green-500'}`} />
-                  {processingMode === 'local' ? 'Local Analysis Mode' : `${activeProviderName} Cloud Mode`}
+    <div className="flex flex-col gap-4 h-[calc(100vh-140px)]">
+
+      {/* ── Chat card ── */}
+      <div className="flex-1 flex flex-col bg-white rounded-[28px] border border-dawn shadow-lg overflow-hidden min-h-0">
+
+        {/* Header */}
+        <div className="flex items-center justify-between px-5 py-3 border-b border-dawn bg-stone/30 shrink-0">
+          <div className="flex items-center gap-3">
+            <div className="w-9 h-9 bg-ink text-white rounded-xl flex items-center justify-center shadow">
+              <Bot className="w-4.5 h-4.5" />
+            </div>
+            <div>
+              <span className="block text-sm font-black text-ink">AI Copilot</span>
+              <div className="flex items-center gap-1.5">
+                <span className={`w-1.5 h-1.5 rounded-full ${mode === 'cloud' && hasKey ? 'bg-blue-500' : 'bg-green-400'} animate-pulse`} />
+                <span className="text-[10px] font-bold text-muted">
+                  {mode === 'local' ? 'Local mode' : `${providerLabel}`}
                 </span>
               </div>
             </div>
-            <div className="flex items-center gap-3">
-              {activeTab === 'chat' && (
-                <button
-                  onClick={clearChat}
-                  className="p-2 text-muted hover:text-red-500 hover:bg-red-50 rounded-lg transition-all"
-                  title="Clear chat"
-                >
-                  <Trash2 className="w-4 h-4" />
-                </button>
-              )}
-              <div className="flex bg-stone p-1 rounded-xl border border-dawn">
-                <button
-                  onClick={() => setActiveTab('chat')}
-                  className={`flex items-center gap-2 px-4 py-1.5 rounded-lg text-[10px] font-black uppercase tracking-widest transition-all ${activeTab === 'chat' ? 'bg-ink text-white shadow-md' : 'text-muted hover:text-ink'}`}
-                >
-                  <History className="w-3.5 h-3.5" />
-                  <span>Relay</span>
-                </button>
-                <button
-                  onClick={() => setActiveTab('preview')}
-                  className={`flex items-center gap-2 px-4 py-1.5 rounded-lg text-[10px] font-black uppercase tracking-widest transition-all ${activeTab === 'preview' ? 'bg-ink text-white shadow-md' : 'text-muted hover:text-ink'}`}
-                >
-                  <Code className="w-3.5 h-3.5" />
-                  <span>Studio</span>
-                </button>
+          </div>
+
+          <div className="flex items-center gap-2">
+            {/* Mode toggle */}
+            <div className="flex bg-stone border border-dawn rounded-xl p-0.5">
+              <button
+                onClick={() => setMode('local')}
+                className={`flex items-center gap-1.5 px-3 py-1.5 rounded-lg text-[10px] font-black uppercase tracking-wide transition-all ${mode === 'local' ? 'bg-white shadow text-ink' : 'text-muted hover:text-ink'}`}
+              >
+                <HardDrive className="w-3 h-3" /> Local
+              </button>
+              <button
+                onClick={() => setMode('cloud')}
+                title={!hasKey ? `Add a ${providerLabel} API key in Settings → AI & API` : ''}
+                className={`flex items-center gap-1.5 px-3 py-1.5 rounded-lg text-[10px] font-black uppercase tracking-wide transition-all ${mode === 'cloud' ? 'bg-white shadow text-blue-600' : 'text-muted hover:text-ink'} ${!hasKey ? 'opacity-50' : ''}`}
+              >
+                <Cloud className="w-3 h-3" /> Cloud
+              </button>
+            </div>
+
+            {/* Studio toggle */}
+            <button
+              onClick={() => setShowStudio(v => !v)}
+              title="HTML Studio"
+              className={`p-2 rounded-xl border transition-all text-[10px] font-black uppercase tracking-wide flex items-center gap-1.5 ${showStudio ? 'bg-ink text-white border-ink' : 'border-dawn text-muted hover:text-ink'}`}
+            >
+              <Code className="w-3.5 h-3.5" />
+            </button>
+
+            {/* Clear */}
+            <button
+              onClick={() => { setMessages([{ role: 'assistant', content: 'Chat cleared. How can I help?', timestamp: Date.now() }]); setError(''); }}
+              title="Clear chat"
+              className="p-2 rounded-xl border border-transparent text-muted hover:text-red-500 hover:bg-red-50 transition-all"
+            >
+              <Trash2 className="w-3.5 h-3.5" />
+            </button>
+          </div>
+        </div>
+
+        {/* No-key warning */}
+        {mode === 'cloud' && !hasKey && (
+          <div className="mx-4 mt-3 px-4 py-2.5 bg-amber-50 border border-amber-200 rounded-xl text-xs font-bold text-amber-700 flex items-center gap-2 shrink-0">
+            <AlertCircle className="w-3.5 h-3.5 shrink-0" />
+            No API key for {providerLabel} — add one in <span className="underline cursor-pointer ml-1">Settings → AI & API</span>
+          </div>
+        )}
+
+        {/* Messages */}
+        <div ref={scrollRef} className="flex-1 overflow-y-auto px-5 py-4 space-y-4 custom-scrollbar">
+          {messages.map((m, i) => (
+            <div key={i} className={`flex gap-3 group ${m.role === 'user' ? 'flex-row-reverse' : ''}`}>
+              {/* Avatar */}
+              <div className={`w-8 h-8 rounded-xl flex items-center justify-center shrink-0 shadow-sm ${m.role === 'user' ? 'bg-stone border border-dawn' : 'bg-citrus text-white'}`}>
+                {m.role === 'user' ? <User className="w-4 h-4 text-muted" /> : <Sparkles className="w-4 h-4" />}
+              </div>
+
+              {/* Bubble */}
+              <div className={`relative max-w-[78%] ${m.role === 'user' ? 'items-end' : 'items-start'} flex flex-col gap-1`}>
+                <div className={`px-4 py-3 rounded-2xl text-sm leading-relaxed shadow-sm ${
+                  m.role === 'user'
+                    ? 'bg-ink text-white rounded-tr-sm'
+                    : 'bg-stone/60 border border-dawn text-ink rounded-tl-sm'
+                }`}>
+                  {m.role === 'assistant' ? <Md content={m.content} /> : m.content}
+                </div>
+                <div className={`flex items-center gap-2 ${m.role === 'user' ? 'flex-row-reverse' : ''}`}>
+                  <span className="text-[9px] text-muted/40 font-medium">
+                    {m.timestamp ? new Date(m.timestamp).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' }) : ''}
+                  </span>
+                  <button
+                    onClick={() => copyMsg(m.content, i)}
+                    className="opacity-0 group-hover:opacity-100 transition-opacity"
+                    title="Copy"
+                  >
+                    {copiedId === i
+                      ? <Check className="w-3 h-3 text-green-500" />
+                      : <Copy className="w-3 h-3 text-muted hover:text-ink" />}
+                  </button>
+                </div>
               </div>
             </div>
-          </div>
+          ))}
 
-          <div className="flex-1 overflow-hidden flex flex-col">
-            {activeTab === 'chat' ? (
-              <>
-                <div className="flex-1 overflow-y-auto p-6 space-y-5 custom-scrollbar" ref={scrollRef}>
-                  <AnimatePresence>
-                    {messages.map((m, i) => (
-                      <motion.div
-                        key={i}
-                        initial={{ opacity: 0, y: 10 }}
-                        animate={{ opacity: 1, y: 0 }}
-                        className={`flex gap-4 group ${m.role === 'user' ? 'flex-row-reverse' : ''}`}
-                      >
-                        <div className={`w-9 h-9 rounded-xl flex items-center justify-center flex-shrink-0 shadow-sm ${m.role === 'user' ? 'bg-dawn text-ink' : 'bg-citrus text-white'}`}>
-                          {m.role === 'user' ? <User className="w-4 h-4" /> : <Sparkles className="w-4 h-4" />}
-                        </div>
-                        <div className="flex flex-col gap-1.5 max-w-[80%]">
-                          <div className={`relative p-4 rounded-2xl text-[13px] font-semibold leading-relaxed shadow-sm ${m.role === 'user' ? 'bg-ink text-white rounded-tr-none' : 'bg-stone/50 border border-dawn text-ink rounded-tl-none'}`}>
-                            {m.role === 'assistant' ? <MarkdownMessage content={m.content} /> : m.content}
-                            <button
-                              onClick={() => copyMessage(m.content, i)}
-                              className={`absolute -top-2 ${m.role === 'user' ? '-left-2' : '-right-2'} p-1.5 bg-white border border-dawn rounded-lg text-muted hover:text-ink transition-all opacity-0 group-hover:opacity-100 shadow-sm`}
-                            >
-                              {copiedId === i ? <Check className="w-3 h-3 text-green-500" /> : <Copy className="w-3 h-3" />}
-                            </button>
-                          </div>
-                          <span className={`text-[8px] font-black uppercase tracking-widest text-muted/50 ${m.role === 'user' ? 'text-right' : 'text-left'}`}>
-                            {m.timestamp ? new Date(m.timestamp).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' }) : ''}
-                          </span>
-                        </div>
-                      </motion.div>
-                    ))}
-                  </AnimatePresence>
-
-                  {isLoading && (
-                    <div className="flex gap-4">
-                      <div className="w-9 h-9 rounded-xl bg-citrus text-white flex items-center justify-center shadow-lg shadow-citrus/20">
-                        <motion.div animate={{ rotate: 360 }} transition={{ repeat: Infinity, duration: 1, ease: 'linear' }}>
-                          <RefreshCw className="w-4 h-4" />
-                        </motion.div>
-                      </div>
-                      <div className="p-4 rounded-2xl bg-stone/50 border border-dawn font-black text-muted animate-pulse text-[10px] tracking-[0.2em] uppercase">
-                        {processingMode === 'cloud' ? `Calling ${activeProviderName}...` : 'Processing Local Data...'}
-                      </div>
-                    </div>
-                  )}
-                </div>
-
-                <div className="p-5 border-t border-dawn bg-stone/5">
-                  {error && (
-                    <div className="mb-3 flex items-center gap-2 px-4 py-2.5 bg-red-50 border border-red-100 rounded-xl text-xs font-bold text-red-600">
-                      <AlertCircle className="w-4 h-4 shrink-0" />
-                      <span className="flex-1">{error}</span>
-                      <button onClick={() => setError('')} className="text-red-400 hover:text-red-600"><X className="w-3.5 h-3.5" /></button>
-                    </div>
-                  )}
-                  <div className="relative group">
-                    <div className="absolute left-4 top-1/2 -translate-y-1/2 text-muted/40 font-black text-[10px]">/</div>
-                    <input
-                      type="text"
-                      value={input}
-                      onChange={(e) => setInput(e.target.value)}
-                      onKeyDown={(e) => e.key === 'Enter' && !e.shiftKey && handleSend()}
-                      placeholder="Ask about risks, tasks, or type /render html..."
-                      className="w-full bg-white border border-dawn rounded-2xl pl-8 pr-14 py-4 text-sm font-bold focus:outline-none focus:ring-4 focus:ring-citrus/5 focus:border-citrus transition-all placeholder:text-muted/30"
-                    />
-                    <button
-                      onClick={() => handleSend()}
-                      disabled={isLoading || !input.trim()}
-                      className="absolute right-2 top-1/2 -translate-y-1/2 w-10 h-10 bg-ink text-white rounded-xl flex items-center justify-center hover:bg-slate-900 active:scale-95 transition-all shadow-lg disabled:opacity-50"
-                    >
-                      <Send className="w-5 h-5" />
-                    </button>
-                  </div>
-                  <div className="mt-4 flex gap-3 overflow-x-auto no-scrollbar py-1">
-                    {[
-                      { cmd: 'What are the current risks and alerts?', label: 'Risk Analysis', icon: AlertCircle },
-                      { cmd: 'Summarize pending handovers', label: 'Handovers', icon: RefreshCw },
-                      { cmd: '/render html ops dashboard', label: 'Visualize', icon: Play },
-                      { cmd: 'Give me a full status summary', label: 'Status', icon: Hash },
-                      { cmd: 'List all blocked tasks', label: 'Blocked', icon: Terminal },
-                    ].map((suggest, i) => (
-                      <button
-                        key={i}
-                        onClick={() => handleSend(suggest.cmd)}
-                        className="flex items-center gap-1.5 px-3 py-1.5 bg-white border border-dawn rounded-lg text-[9px] font-black uppercase tracking-widest text-muted hover:text-citrus hover:border-citrus/30 transition-all shrink-0"
-                      >
-                        <suggest.icon className="w-3 h-3" />
-                        <span>{suggest.label}</span>
-                      </button>
-                    ))}
-                  </div>
-                </div>
-              </>
-            ) : (
-              <div className="flex-1 flex flex-col h-full">
-                <div className="p-3 bg-stone border-b border-dawn flex items-center justify-between">
-                  <div className="flex items-center gap-2">
-                    <Code className="w-4 h-4 text-muted" />
-                    <span className="text-[10px] font-black uppercase tracking-widest text-muted">HTML/CSS Render Sandbox</span>
-                  </div>
-                  <div className="flex gap-2">
-                    <button onClick={() => updatePreview(previewCode)} className="p-1.5 hover:bg-dawn rounded-lg text-muted hover:text-green-500 transition-all" title="Run">
-                      <Play className="w-4 h-4" />
-                    </button>
-                    <button onClick={saveStudio} className="p-1.5 hover:bg-dawn rounded-lg transition-all" title="Save to browser">
-                      {studioSaved ? <CheckCircle2 className="w-4 h-4 text-green-500" /> : <Save className="w-4 h-4 text-muted hover:text-blue-500" />}
-                    </button>
-                    <button onClick={downloadStudio} className="p-1.5 hover:bg-dawn rounded-lg text-muted hover:text-citrus transition-all" title="Download HTML">
-                      <Download className="w-4 h-4" />
-                    </button>
-                  </div>
-                </div>
-                <div className="flex-1 flex flex-col md:flex-row min-h-0 h-full">
-                  <div className="flex-1 bg-slate-900 p-4 border-r border-slate-800 flex flex-col">
-                    <span className="text-[9px] font-black uppercase tracking-widest text-white/30 mb-2">Source Editor</span>
-                    <textarea
-                      value={previewCode}
-                      onChange={(e) => setPreviewCode(e.target.value)}
-                      className="flex-1 w-full bg-transparent text-white font-mono text-xs focus:outline-none resize-none custom-scrollbar leading-relaxed"
-                    />
-                  </div>
-                  <div className="flex-1 bg-white relative flex flex-col h-full min-h-[300px]">
-                    <span className="absolute top-2 right-4 text-[9px] font-black uppercase tracking-widest text-muted/30">Live View</span>
-                    <iframe
-                      ref={iframeRef}
-                      title="Render Preview"
-                      className="w-full h-full border-none"
-                      srcDoc={previewCode}
-                    />
-                  </div>
+          {/* Typing indicator */}
+          {loading && (
+            <div className="flex gap-3">
+              <div className="w-8 h-8 rounded-xl bg-citrus text-white flex items-center justify-center shrink-0 shadow-sm">
+                <RefreshCw className="w-4 h-4 animate-spin" />
+              </div>
+              <div className="px-4 py-3 bg-stone/60 border border-dawn rounded-2xl rounded-tl-sm">
+                <div className="flex gap-1.5 items-center h-4">
+                  <span className="w-1.5 h-1.5 bg-muted/40 rounded-full animate-bounce" style={{ animationDelay: '0ms' }} />
+                  <span className="w-1.5 h-1.5 bg-muted/40 rounded-full animate-bounce" style={{ animationDelay: '150ms' }} />
+                  <span className="w-1.5 h-1.5 bg-muted/40 rounded-full animate-bounce" style={{ animationDelay: '300ms' }} />
                 </div>
               </div>
-            )}
-          </div>
-        </div>
-      </div>
-
-      {/* Bottom stats row */}
-      <div className="grid grid-cols-1 md:grid-cols-4 gap-6">
-        <div className="glass-card p-5 border-l-4 border-l-citrus">
-          <div className="flex items-center gap-3 mb-3">
-            <Layers className="w-4 h-4 text-citrus" />
-            <span className="text-[10px] font-black uppercase tracking-widest text-muted">Live Context</span>
-          </div>
-          <div className="flex flex-wrap gap-2">
-            <span className="px-2 py-1 bg-stone rounded-md text-[9px] font-black text-ink">{tasks.length} tasks</span>
-            <span className="px-2 py-1 bg-stone rounded-md text-[9px] font-black text-ink">{handovers.length} handovers</span>
-            <span className="px-2 py-1 bg-red-50 text-red-600 rounded-md text-[9px] font-black">{tasks.filter(t => t.priority === 'High').length} high-risk</span>
-          </div>
-        </div>
-
-        <div className="glass-card p-5">
-          <div className="flex items-center gap-3 mb-3">
-            <Cpu className="w-4 h-4 text-blue-500" />
-            <span className="text-[10px] font-black uppercase tracking-widest text-muted">Processing Mode</span>
-          </div>
-          <div className="flex gap-2">
-            <button
-              onClick={() => setProcessingMode('local')}
-              className={`flex-1 flex items-center justify-center gap-1.5 p-2 rounded-xl text-[9px] font-black uppercase tracking-tighter transition-all ${processingMode === 'local' ? 'bg-citrus/10 border border-citrus/30 text-ink shadow-sm' : 'bg-stone border border-dawn text-muted hover:text-ink'}`}
-            >
-              <HardDrive className="w-3 h-3" /> Local
-            </button>
-            <button
-              onClick={() => setProcessingMode('cloud')}
-              title={!hasApiKey ? `Add a ${activeProviderName} API key in Settings → AI & API` : ''}
-              className={`flex-1 flex items-center justify-center gap-1.5 p-2 rounded-xl text-[9px] font-black uppercase tracking-tighter transition-all ${processingMode === 'cloud' ? 'bg-blue-50 border border-blue-200 text-blue-700 shadow-sm' : 'bg-stone border border-dawn text-muted hover:text-ink'} ${!hasApiKey ? 'opacity-60' : ''}`}
-            >
-              <Cloud className="w-3 h-3" /> Cloud
-            </button>
-          </div>
-          {processingMode === 'cloud' && !hasApiKey && (
-            <p className="text-[8px] font-bold text-amber-600 mt-2 leading-tight">No API key — configure in Settings</p>
+            </div>
           )}
         </div>
 
-        <div className="glass-card p-5">
-          <div className="flex items-center gap-3 mb-1.5">
-            <History className="w-4 h-4 text-muted" />
-            <span className="text-[10px] font-black uppercase tracking-widest text-muted">Session</span>
-          </div>
-          <div className="flex items-baseline gap-2 mb-3">
-            <span className="relaxed-title text-2xl">{messages.length}</span>
-            <span className="text-[9px] font-bold text-muted/60 uppercase">messages</span>
-          </div>
-          <div className="h-1 bg-stone rounded-full overflow-hidden">
-            <div className="h-full bg-ink transition-all" style={{ width: `${Math.min(100, (messages.length / 30) * 100)}%` }} />
-          </div>
-        </div>
+        {/* Input area */}
+        <div className="px-4 pb-4 pt-2 border-t border-dawn bg-white shrink-0">
+          {/* Error */}
+          {error && (
+            <div className="mb-2 flex items-center gap-2 px-3 py-2 bg-red-50 border border-red-100 rounded-xl text-xs font-bold text-red-600">
+              <AlertCircle className="w-3.5 h-3.5 shrink-0" />
+              <span className="flex-1 line-clamp-1">{error}</span>
+              <button onClick={() => setError('')}><X className="w-3.5 h-3.5" /></button>
+            </div>
+          )}
 
-        <div className={`glass-card p-5 flex flex-col justify-between border-l-4 ${processingMode === 'cloud' && hasApiKey ? 'border-l-blue-400 bg-blue-50/30' : 'border-l-citrus'}`}>
-          <div className="flex items-center justify-between">
-            <Sparkles className={`w-4 h-4 ${processingMode === 'cloud' && hasApiKey ? 'text-blue-500' : 'text-citrus'}`} />
-            <span className={`text-[8px] font-black uppercase tracking-widest ${processingMode === 'cloud' && hasApiKey ? 'text-blue-500' : 'text-citrus'}`}>
-              {processingMode === 'cloud' && hasApiKey ? activeProviderName : 'Local'}
-            </span>
+          {/* Quick prompts — only show when input is empty */}
+          {!input && (
+            <div className="flex gap-2 mb-2 overflow-x-auto no-scrollbar">
+              {QUICK.map((q, i) => (
+                <button
+                  key={i}
+                  onClick={() => send(q.cmd)}
+                  className="shrink-0 px-3 py-1.5 bg-stone border border-dawn rounded-lg text-xs font-bold text-muted hover:text-ink hover:border-ink/20 transition-all"
+                >
+                  {q.label}
+                </button>
+              ))}
+            </div>
+          )}
+
+          {/* Text input */}
+          <div className={`flex items-center gap-2 bg-stone/50 border rounded-2xl px-4 py-2.5 transition-all ${inputFocused ? 'border-citrus bg-white shadow-sm shadow-citrus/5' : 'border-dawn'}`}>
+            <input
+              ref={inputRef}
+              value={input}
+              onChange={e => setInput(e.target.value)}
+              onKeyDown={e => e.key === 'Enter' && !e.shiftKey && send()}
+              onFocus={() => setInputFocused(true)}
+              onBlur={() => setInputFocused(false)}
+              placeholder="Ask anything about tasks, risks, handovers…"
+              className="flex-1 bg-transparent text-sm font-medium focus:outline-none placeholder:text-muted/40"
+            />
+            <button
+              onClick={() => send()}
+              disabled={loading || !input.trim()}
+              className="w-8 h-8 bg-ink text-white rounded-xl flex items-center justify-center hover:bg-slate-800 active:scale-95 transition-all disabled:opacity-40 shrink-0"
+            >
+              <Send className="w-3.5 h-3.5" />
+            </button>
           </div>
-          <p className="text-[10px] font-bold text-ink leading-relaxed mt-4">
-            {processingMode === 'cloud' && hasApiKey
-              ? `Connected to ${activeProviderName} — ${settings.aiModel || 'default model'}.`
-              : 'Local analysis powered by workspace data. Switch to Cloud for AI responses.'}
-          </p>
+          <p className="text-[9px] text-muted/30 mt-1.5 text-center">Enter to send · /clear to reset · /render html to visualize</p>
         </div>
       </div>
-    </div>
-  );
-}
 
-// Minimal import for the X icon used in error banner
-function X({ className }: { className?: string }) {
-  return (
-    <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" className={className}>
-      <path d="M18 6 6 18M6 6l12 12"/>
-    </svg>
+      {/* ── Studio (collapsible) ── */}
+      {showStudio && (
+        <div className="bg-white rounded-[24px] border border-dawn shadow-lg overflow-hidden" style={{ height: '380px' }}>
+          <div className="flex items-center justify-between px-4 py-2.5 bg-slate-900 border-b border-slate-800">
+            <div className="flex items-center gap-2">
+              <Code className="w-4 h-4 text-white/50" />
+              <span className="text-[10px] font-black uppercase tracking-widest text-white/50">HTML Studio</span>
+            </div>
+            <div className="flex items-center gap-1">
+              <button onClick={() => { if (iframeRef.current) { const d = iframeRef.current.contentDocument; if (d) { d.open(); d.write(previewCode); d.close(); } } }} className="p-1.5 hover:bg-white/10 rounded-lg text-white/40 hover:text-green-400 transition-all" title="Run"><Play className="w-3.5 h-3.5" /></button>
+              <button onClick={saveStudio} className="p-1.5 hover:bg-white/10 rounded-lg transition-all" title="Save">{studioSaved ? <CheckCircle2 className="w-3.5 h-3.5 text-green-400" /> : <Save className="w-3.5 h-3.5 text-white/40 hover:text-blue-400" />}</button>
+              <button onClick={downloadStudio} className="p-1.5 hover:bg-white/10 rounded-lg text-white/40 hover:text-citrus transition-all" title="Download"><Download className="w-3.5 h-3.5" /></button>
+              <button onClick={() => setShowStudio(false)} className="p-1.5 hover:bg-white/10 rounded-lg text-white/40 hover:text-white transition-all ml-1"><ChevronDown className="w-3.5 h-3.5" /></button>
+            </div>
+          </div>
+          <div className="flex h-[calc(100%-42px)]">
+            <div className="w-1/2 bg-slate-900 border-r border-slate-800 flex flex-col p-3">
+              <textarea
+                value={previewCode}
+                onChange={e => setPreviewCode(e.target.value)}
+                className="flex-1 w-full bg-transparent text-green-400 font-mono text-xs focus:outline-none resize-none custom-scrollbar leading-relaxed"
+                spellCheck={false}
+              />
+            </div>
+            <div className="w-1/2 bg-white relative">
+              <span className="absolute top-2 right-3 text-[9px] font-bold text-muted/30 uppercase">Preview</span>
+              <iframe ref={iframeRef} title="Preview" className="w-full h-full border-none" srcDoc={previewCode} />
+            </div>
+          </div>
+        </div>
+      )}
+    </div>
   );
 }
