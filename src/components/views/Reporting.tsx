@@ -282,24 +282,48 @@ export default function Reporting({ tasks, handovers, stats }: ReportingProps) {
       <div className="grid grid-cols-1 lg:grid-cols-3 gap-6">
         {/* Status Donut */}
         <ChartCard title="Task Status" desc="Current state distribution">
-          <ResponsiveContainer width="100%" height="100%">
-            <PieChart>
-              <Pie data={statusData} dataKey="value" nameKey="name" innerRadius={52} outerRadius={88} paddingAngle={2}>
-                {statusData.map(e => <Cell key={e.name} fill={STATUS_COLORS[e.name] || COLORS[0]} />)}
-              </Pie>
-              <RechartsTooltip contentStyle={tooltipStyle} formatter={(v: number, n: string) => [`${v} tasks`, n]} />
-            </PieChart>
-          </ResponsiveContainer>
-          <div className="grid grid-cols-3 gap-2 mt-2">
-            {statusData.map(s => (
-              <div key={s.name} className="text-center">
-                <div className="flex items-center justify-center gap-1.5 text-[9px] font-bold text-muted">
-                  <span className="w-2 h-2 rounded-sm" style={{ backgroundColor: STATUS_COLORS[s.name] || COLORS[0] }} />
-                  {s.name}
-                </div>
-                <span className="block text-sm font-black">{s.value}</span>
+          <div className="relative" style={{ height: 200 }}>
+            <ResponsiveContainer width="100%" height="100%">
+              <PieChart>
+                <Pie
+                  data={statusData}
+                  dataKey="value"
+                  nameKey="name"
+                  innerRadius={50}
+                  outerRadius={78}
+                  paddingAngle={3}
+                  cornerRadius={4}
+                  strokeWidth={0}
+                >
+                  {statusData.map(e => (
+                    <Cell key={e.name} fill={STATUS_COLORS[e.name] || COLORS[0]} />
+                  ))}
+                </Pie>
+                <RechartsTooltip
+                  contentStyle={tooltipStyle}
+                  formatter={(v: number, n: string) => [`${v} tasks (${total ? ((v / total) * 100).toFixed(0) : 0}%)`, n]}
+                />
+              </PieChart>
+            </ResponsiveContainer>
+            <div className="absolute inset-0 flex flex-col items-center justify-center pointer-events-none" style={{ top: 2 }}>
+              <span className="text-2xl font-black relaxed-title text-ink">{total}</span>
+              <span className="text-[8px] font-bold text-muted uppercase tracking-widest">Total</span>
+            </div>
+          </div>
+          <div className="flex flex-wrap gap-1.5 mt-3">
+            {statusData.filter(s => s.value > 0).map(s => (
+              <div
+                key={s.name}
+                className="flex items-center gap-1.5 px-2 py-1 rounded-md bg-stone/40 text-[9px] font-bold uppercase tracking-wide"
+              >
+                <span className="w-2 h-2 rounded-full" style={{ backgroundColor: STATUS_COLORS[s.name] || COLORS[0] }} />
+                {s.name}
+                <span className="font-black text-ink tabular-nums">{s.value}</span>
               </div>
             ))}
+            {statusData.every(s => s.value === 0) && (
+              <p className="text-[9px] font-bold text-muted/40 text-center w-full py-4">No task data</p>
+            )}
           </div>
         </ChartCard>
 

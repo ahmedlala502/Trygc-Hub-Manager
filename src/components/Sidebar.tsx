@@ -24,8 +24,7 @@ export default function Sidebar({ activeTab, setActiveTab, openSettingsTab, stat
     { id: 'handover', label: 'Shift Handover', icon: RefreshCw, badge: stats.handoverCount > 0 ? stats.handoverCount : null, badgeColor: 'bg-citrus' },
     { id: 'offices', label: 'Office Presence', icon: Globe },
     { id: 'team', label: 'Team Performance', icon: Users },
-    { section: 'Studio' },
-    { id: 'ai', label: 'AI Studio', icon: MessageSquare },
+
     { section: 'System' },
     { id: 'settings', label: 'Settings & Config', icon: Settings },
   ];

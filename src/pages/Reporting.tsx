@@ -162,11 +162,21 @@ const COLORS = ['#f97316', '#6b21a8', '#ef4444'];
                     <span className="text-[10px] text-muted-foreground font-mono">75%</span>
                   </div>
                 </TableCell>
-                <TableCell>
-                  <Badge variant="outline" className="text-[9px] font-bold uppercase font-condensed border-border text-muted-foreground bg-secondary">
-                    Ready
-                  </Badge>
-                </TableCell>
+                 <TableCell>
+                   {campaign.blockerStatus ? (
+                     <Badge variant="outline" className="text-[9px] font-bold uppercase font-condensed border-border text-emerald-600 bg-emerald-50 dark:text-emerald-400 dark:bg-emerald-900/20">
+                       Blocked
+                     </Badge>
+                   ) : campaign.stage === 18 ? (
+                     <Badge variant="outline" className="text-[9px] font-bold uppercase font-condensed border-border text-gc-orange bg-gc-orange/10 dark:text-gc-orange/20 dark:bg-gc-orange/90">
+                       Completed
+                     </Badge>
+                   ) : (
+                     <Badge variant="outline" className="text-[9px] font-bold uppercase font-condensed border-border text-gc-purple bg-gc-purple/10 dark:text-gc-purple/20 dark:bg-gc-purple/90">
+                       Active
+                     </Badge>
+                   )}
+                 </TableCell>
                 <TableCell className="text-right">
                   <Button variant="ghost" size="sm" className="h-8 text-muted-foreground hover:text-foreground hover:bg-accent font-condensed font-bold uppercase tracking-wider">
                     <FileText className="h-4 w-4 mr-2" />
