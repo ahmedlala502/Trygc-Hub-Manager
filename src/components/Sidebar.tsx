@@ -1,5 +1,5 @@
 import React from 'react';
-import { Home, CheckSquare, RefreshCw, Globe, MessageSquare, Settings, LogOut, TrendingUp, Users } from 'lucide-react';
+import { Home, CheckSquare, RefreshCw, Globe, MessageSquare, Settings, LogOut, TrendingUp, Users, Lock, Repeat } from 'lucide-react';
 import { useLocalData } from './LocalDataContext';
 
 interface SidebarProps {
@@ -13,12 +13,13 @@ interface SidebarProps {
 }
 
 export default function Sidebar({ activeTab, setActiveTab, openSettingsTab, stats }: SidebarProps) {
-  const { user, logout, isSuperAdmin, hasAdminAccess } = useLocalData();
+  const { user, logout, lock, isSuperAdmin, canAccessPage } = useLocalData();
 
   const menuItems = [
     { section: 'Intelligence' },
     { id: 'dashboard', label: 'Command Center', icon: Home, badge: stats.riskCount > 0 ? stats.riskCount : null, badgeColor: 'bg-red-500' },
     { id: 'reports', label: 'Analytics & Reporting', icon: TrendingUp },
+    { id: 'ai', label: 'AI Workspace', icon: MessageSquare },
     { section: 'Operations' },
     { id: 'tasks', label: 'Task Register', icon: CheckSquare },
     { id: 'handover', label: 'Shift Handover', icon: RefreshCw, badge: stats.handoverCount > 0 ? stats.handoverCount : null, badgeColor: 'bg-citrus' },
@@ -42,7 +43,7 @@ export default function Sidebar({ activeTab, setActiveTab, openSettingsTab, stat
       </div>
 
       <nav className="flex-1 space-y-1">
-        {menuItems.map((item, idx) => {
+        {menuItems.filter(item => ('section' in item) || canAccessPage(item.id as any)).map((item, idx) => {
           if ('section' in item) {
             return (
               <div key={`section-${idx}`} className="text-[9px] font-black uppercase tracking-[0.2em] text-muted/60 mt-6 mb-2 ml-3">
@@ -90,25 +91,43 @@ export default function Sidebar({ activeTab, setActiveTab, openSettingsTab, stat
               )}
             </div>
           </div>
-          <button 
-            onClick={() => openSettingsTab ? openSettingsTab('profile') : setActiveTab('settings')}
-            className={`w-full flex items-center gap-2 p-2 text-xs font-bold transition-colors ${activeTab === 'settings' ? 'text-citrus' : 'text-muted hover:text-ink'}`}
-          >
-            <Settings className="w-4 h-4" />
-            <span>Profile Settings</span>
-          </button>
+          <div className="space-y-1">
+            <button 
+              onClick={() => openSettingsTab ? openSettingsTab('profile') : setActiveTab('settings')}
+              className={`w-full flex items-center gap-2 p-2 text-xs font-bold transition-colors rounded-lg ${activeTab === 'settings' ? 'text-citrus' : 'text-muted hover:text-ink hover:bg-white/60'}`}
+            >
+              <Settings className="w-4 h-4" />
+              <span>Profile Settings</span>
+            </button>
+            <button
+              onClick={() => openSettingsTab ? openSettingsTab('users') : setActiveTab('settings')}
+              className="w-full flex items-center gap-2 p-2 text-xs font-bold text-muted hover:text-ink hover:bg-white/60 transition-colors rounded-lg"
+            >
+              <Repeat className="w-4 h-4" />
+              <span>Switch User</span>
+            </button>
+            <button
+              onClick={() => {
+                lock();
+                setActiveTab('dashboard');
+              }}
+              className="w-full flex items-center gap-2 p-2 text-xs font-bold text-muted hover:text-ink hover:bg-white/60 transition-colors rounded-lg"
+            >
+              <Lock className="w-4 h-4" />
+              <span>Lock Session</span>
+            </button>
+            <button 
+              onClick={() => {
+                logout();
+                setActiveTab('dashboard');
+              }}
+              className="w-full flex items-center gap-2 p-2 text-xs font-bold text-muted hover:text-red-500 hover:bg-red-50 transition-colors rounded-lg"
+            >
+              <LogOut className="w-4 h-4" />
+              <span>Sign Out</span>
+            </button>
+          </div>
         </div>
-
-        <button 
-          onClick={() => {
-            logout();
-            setActiveTab('dashboard');
-          }}
-          className="w-full flex items-center justify-center gap-2 p-3 text-muted hover:text-red-500 text-sm font-bold transition-all border border-transparent hover:border-red-100 hover:bg-red-50 rounded-xl"
-        >
-          <LogOut className="w-4 h-4" />
-          <span>Logout</span>
-        </button>
       </div>
     </aside>
   );

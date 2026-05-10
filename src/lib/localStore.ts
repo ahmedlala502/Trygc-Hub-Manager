@@ -1,5 +1,6 @@
 import { Handover, Member, Office, Priority, Shift, Status, Task, User, AuthState } from '../types';
 import { INITIAL_HANDOVERS, INITIAL_MEMBERS, INITIAL_TASKS, INITIAL_USER, OFFICES, TEAMS, SUPER_ADMIN_PASSWORD } from '../constants';
+import { DEFAULT_ROLE_PERMISSIONS, DEFAULT_WIDGET_CONFIG, RolePermissionMap, WidgetConfig } from './accessControl';
 
 export interface CustomProvider {
   id: string;
@@ -26,6 +27,9 @@ export interface WorkspaceSettings {
   mcpConfig?: string;
   customProviders?: CustomProvider[];
   featureFlags?: Record<string, boolean>;
+  rolePermissions?: RolePermissionMap;
+  widgetConfig?: WidgetConfig;
+  fallbackProviders?: string[];
   appearance?: {
     fontSize: number;
     radius: number;
@@ -134,6 +138,9 @@ export function createWorkspace(): LocalWorkspace {
         aiBriefGeneration: true,
         localBackups: true,
       },
+      rolePermissions: DEFAULT_ROLE_PERMISSIONS,
+      widgetConfig: DEFAULT_WIDGET_CONFIG,
+      fallbackProviders: ['local', 'openai', 'anthropic', 'groq'],
       appearance: {
         fontSize: 14,
         radius: 24,
@@ -177,6 +184,9 @@ function migrateSettings(settings: WorkspaceSettings): WorkspaceSettings {
       officeIsolation: settings.featureFlags?.officeIsolation ?? true,
       teamIsolation: settings.featureFlags?.teamIsolation ?? true,
     },
+    rolePermissions: settings.rolePermissions || DEFAULT_ROLE_PERMISSIONS,
+    widgetConfig: { ...DEFAULT_WIDGET_CONFIG, ...(settings.widgetConfig || {}) },
+    fallbackProviders: settings.fallbackProviders?.length ? settings.fallbackProviders : ['local', 'openai', 'anthropic', 'groq'],
   };
 }
 

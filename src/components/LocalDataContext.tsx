@@ -1,6 +1,7 @@
 import React, { createContext, useContext, useMemo, useState, useCallback } from 'react';
 import { AuthState, Handover, Member, Office, Shift, Task } from '../types';
 import { AuditEvent, createId, getAuthState, saveAuthState, clearAuthState, LocalWorkspace, loadWorkspace, normalizeTask, resetWorkspace, saveWorkspace, verifyPasscode, WorkspaceSettings, importWorkspace } from '../lib/localStore';
+import { AppPage, FeatureKey, WidgetKey, filterHandoversByTeam, filterMembersByTeam, filterOfficesByTeam, filterTasksByTeam, getCurrentTeam, resolvePermissionProfile } from '../lib/accessControl';
 
 interface LocalDataContextType extends LocalWorkspace {
   loading: boolean;
@@ -9,8 +10,16 @@ interface LocalDataContextType extends LocalWorkspace {
   login: (password: string) => Promise<boolean>;
   logout: () => void;
   lock: () => void;
+  currentTeam: string;
   isSuperAdmin: boolean;
   hasAdminAccess: boolean;
+  scopedTasks: Task[];
+  scopedHandovers: Handover[];
+  scopedMembers: Member[];
+  scopedOffices: Office[];
+  canAccessPage: (page: AppPage) => boolean;
+  canUseFeature: (feature: FeatureKey) => boolean;
+  isWidgetEnabled: (widget: WidgetKey) => boolean;
   addTask: (task: Partial<Task>) => Promise<void>;
   updateTask: (id: string, patch: Partial<Task>) => Promise<void>;
   deleteTasks: (ids: string[]) => Promise<void>;
@@ -76,6 +85,17 @@ export function LocalDataProvider({ children }: { children: React.ReactNode }) {
     saveAuthState(state);
   }, [auth]);
 
+  const isSuperAdmin = workspace.user.isSuperAdmin === true || workspace.user.role === 'Super Admin';
+  const hasAdminAccess = isSuperAdmin || ['super admin', 'admin', 'manager', 'lead', 'head', 'director', 'general'].some(r => workspace.user.role.toLowerCase().includes(r));
+  const currentTeam = getCurrentTeam(workspace.user, workspace.members);
+  const permissionProfile = resolvePermissionProfile(workspace.user.role, workspace.settings.rolePermissions);
+  const allowedTeams = isSuperAdmin ? ['*'] : permissionProfile.teams;
+  const teamIsolation = workspace.settings.featureFlags?.teamIsolation !== false;
+  const scopedTasks = filterTasksByTeam(workspace.tasks, allowedTeams, teamIsolation);
+  const scopedHandovers = filterHandoversByTeam(workspace.handovers, allowedTeams, teamIsolation);
+  const scopedMembers = filterMembersByTeam(workspace.members, allowedTeams, teamIsolation);
+  const scopedOffices = filterOfficesByTeam(workspace.offices, workspace.tasks, workspace.members, allowedTeams, teamIsolation);
+
   const value = useMemo<LocalDataContextType>(() => ({
     ...workspace,
     auth,
@@ -84,8 +104,16 @@ export function LocalDataProvider({ children }: { children: React.ReactNode }) {
     login,
     logout,
     lock,
-    isSuperAdmin: workspace.user.isSuperAdmin === true || workspace.user.role === 'Super Admin',
-    hasAdminAccess: (workspace.user.isSuperAdmin === true || ['super admin', 'admin', 'manager', 'lead', 'head', 'director', 'general'].some(r => workspace.user.role.toLowerCase().includes(r))),
+    currentTeam,
+    isSuperAdmin,
+    hasAdminAccess,
+    scopedTasks,
+    scopedHandovers,
+    scopedMembers,
+    scopedOffices,
+    canAccessPage: page => isSuperAdmin || permissionProfile.pages.includes(page),
+    canUseFeature: feature => isSuperAdmin || permissionProfile.features.includes(feature),
+    isWidgetEnabled: widget => workspace.settings.widgetConfig?.[widget] !== false,
     addTask: async task => commit(current => appendAudit({
       ...current,
       tasks: [normalizeTask(task, current.user), ...current.tasks],
@@ -174,7 +202,7 @@ export function LocalDataProvider({ children }: { children: React.ReactNode }) {
       setAuth({ isAuthenticated: false, isLocked: false, lastActivity: 0 });
     },
     logAction: async (action, details) => commit(current => appendAudit(current, action, details)),
-  }), [workspace, auth, login, logout, lock]);
+  }), [workspace, auth, login, logout, lock, currentTeam, isSuperAdmin, hasAdminAccess, scopedTasks, scopedHandovers, scopedMembers, scopedOffices, permissionProfile]);
 
   return <LocalDataContext.Provider value={value}>{children}</LocalDataContext.Provider>;
 }

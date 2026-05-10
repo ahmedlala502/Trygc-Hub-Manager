@@ -19,7 +19,7 @@ interface HandoverFlowProps {
 }
 
 export default function HandoverFlow({ handovers, tasks, stats, aiInteractions }: HandoverFlowProps) {
-  const { addHandover, updateHandover, offices, settings, user } = useLocalData();
+  const { addHandover, updateHandover, offices, settings, user, currentTeam, canUseFeature, isWidgetEnabled } = useLocalData();
   const [step, setStep] = useState(1);
   const [isAnalyzing, setIsAnalyzing] = useState(false);
   const [searchTerm, setSearchTerm] = useState('');
@@ -196,6 +196,10 @@ export default function HandoverFlow({ handovers, tasks, stats, aiInteractions }
                   <span className="text-[9px] font-black uppercase tracking-widest text-muted">Pending Total</span>
                 </div>
               </div>
+              <div className="flex items-center gap-3 text-[10px] font-black uppercase tracking-widest">
+                <span className="px-3 py-2 bg-citrus/10 text-citrus rounded-xl">{newHo.team || currentTeam}</span>
+                <span className="px-3 py-2 bg-white border border-dawn text-muted rounded-xl">{newHo.country || user.country}</span>
+              </div>
               <button onClick={() => setStep(2)} className="flex items-center gap-3 px-10 py-4 bg-ink text-white rounded-2xl font-black text-xs uppercase tracking-[0.2em] hover:scale-105 transition-all shadow-2xl shadow-ink/20">
                 <span>Start Handover Builder</span>
                 <ArrowRight className="w-4 h-4" />
@@ -336,7 +340,7 @@ export default function HandoverFlow({ handovers, tasks, stats, aiInteractions }
                 </div>
                 <button
                   onClick={handleAIAnalysis}
-                  disabled={isAnalyzing || activeTasks.length === 0}
+                  disabled={isAnalyzing || activeTasks.length === 0 || !canUseFeature('ai.use')}
                   className="flex items-center gap-2 px-5 py-2.5 bg-citrus text-ink rounded-xl text-[10px] font-black uppercase tracking-widest hover:scale-105 transition-all shadow-lg shadow-citrus/10"
                 >
                   {isAnalyzing ? <Loader2 className="w-3 h-3 animate-spin" /> : <Sparkles className="w-3 h-3" />}
@@ -426,7 +430,7 @@ export default function HandoverFlow({ handovers, tasks, stats, aiInteractions }
 
               <div className="flex justify-between items-center pt-8 border-t border-dawn">
                 <button onClick={() => setStep(4)} className="text-xs font-black uppercase tracking-widest text-muted hover:text-ink transition-colors">Edit Insights</button>
-                <button onClick={saveHandover} className="flex items-center gap-3 px-10 py-4 bg-ink text-white rounded-2xl font-black text-xs uppercase tracking-widest hover:scale-105 transition-all shadow-xl shadow-ink/20">
+                <button onClick={saveHandover} disabled={!canUseFeature(editingHandoverId ? 'handover.edit' : 'handover.create')} className="flex items-center gap-3 px-10 py-4 bg-ink text-white rounded-2xl font-black text-xs uppercase tracking-widest hover:scale-105 transition-all shadow-xl shadow-ink/20 disabled:opacity-50 disabled:hover:scale-100">
                   <span>{editingHandoverId ? 'Update Relay Pulse' : 'Deploy Relay Pulse'}</span>
                   <Send className="w-4 h-4" />
                 </button>
@@ -459,6 +463,7 @@ export default function HandoverFlow({ handovers, tasks, stats, aiInteractions }
       </div>
 
       {/* History Table */}
+      {isWidgetEnabled('handoverAudit') && (
       <section className="space-y-8">
         <div className="flex items-center justify-between px-2">
           <div className="flex items-center gap-3">
@@ -514,9 +519,9 @@ export default function HandoverFlow({ handovers, tasks, stats, aiInteractions }
                   </td>
                   <td className="px-8 py-6 text-right">
                     <div className="flex items-center justify-end gap-2">
-                      <button onClick={() => editHandover(ho)} className="px-4 py-2 bg-white border border-dawn text-muted rounded-lg text-[9px] font-black uppercase tracking-widest hover:text-citrus transition-all">Edit</button>
+                      <button onClick={() => editHandover(ho)} disabled={!canUseFeature('handover.edit')} className="px-4 py-2 bg-white border border-dawn text-muted rounded-lg text-[9px] font-black uppercase tracking-widest hover:text-citrus transition-all disabled:opacity-40">Edit</button>
                       {ho.status === 'Pending' ? (
-                        <button onClick={() => acknowledgeHandover(ho.id)} className="px-5 py-2 bg-citrus text-ink rounded-lg text-[9px] font-black uppercase tracking-widest hover:scale-105 transition-all shadow-lg shadow-citrus/10">Acknowledge</button>
+                        <button onClick={() => acknowledgeHandover(ho.id)} disabled={!canUseFeature('handover.ack')} className="px-5 py-2 bg-citrus text-ink rounded-lg text-[9px] font-black uppercase tracking-widest hover:scale-105 transition-all shadow-lg shadow-citrus/10 disabled:opacity-40 disabled:hover:scale-100">Acknowledge</button>
                       ) : (
                         <div className="flex items-center justify-end gap-2 text-green-500 font-black text-[9px] uppercase tracking-widest">
                           <CheckCircle2 className="w-3.5 h-3.5" />
@@ -538,6 +543,7 @@ export default function HandoverFlow({ handovers, tasks, stats, aiInteractions }
           </table>
         </div>
       </section>
+      )}
     </div>
   );
 }

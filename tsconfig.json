@@ -22,5 +22,23 @@
     },
     "allowImportingTsExtensions": true,
     "noEmit": true
-  }
+  },
+  "include": [
+    "src/**/*.ts",
+    "src/**/*.tsx"
+  ],
+  "exclude": [
+    "src/pages/**",
+    "src/services/**",
+    "src/components/BlockerTab.tsx",
+    "src/components/CoverageTab.tsx",
+    "src/components/InfluencerWorkspace.tsx",
+    "src/components/Layout.tsx",
+    "src/components/views/OfficeMap.tsx",
+    "src/components/ui/**",
+    "src/lib/firebase.ts",
+    "src/lib/seed.ts",
+    "src/lib/utils.ts",
+    "src/utils.ts"
+  ]
 }

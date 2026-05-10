@@ -4,6 +4,7 @@ import { motion, AnimatePresence } from 'motion/react';
 import { OFFICES, TEAMS } from './constants';
 import { Status, Priority, Shift } from './types';
 import { useLocalData } from './components/LocalDataContext';
+import { APP_PAGES } from './lib/accessControl';
 
 // Components
 import Login from './components/Login';
@@ -20,7 +21,7 @@ import ReminderEngine from './components/ReminderEngine';
 import TaskModal from './components/TaskModal';
 
 export default function App() {
-  const { user, tasks, handovers, offices, members, loading, isReady, addTask, auth, login, isSuperAdmin, hasAdminAccess } = useLocalData();
+  const { user, tasks, handovers, offices, members, settings, scopedTasks, scopedHandovers, scopedOffices, scopedMembers, loading, isReady, addTask, auth, login, currentTeam, canAccessPage, canUseFeature } = useLocalData();
   const [activeTab, setActiveTab] = useState<'dashboard' | 'tasks' | 'handover' | 'offices' | 'team' | 'ai' | 'settings' | 'reports'>(() => getInitialTab());
   const [settingsTab, setSettingsTab] = useState(() => getInitialSettingsTab());
   const [isGlobalTaskModalOpen, setIsGlobalTaskModalOpen] = useState(false);
@@ -49,19 +50,25 @@ export default function App() {
     window.history.replaceState(null, '', `#${activeTab}${suffix}`);
   }, [activeTab, settingsTab]);
 
+  React.useEffect(() => {
+    if (canAccessPage(activeTab)) return;
+    const fallback = APP_PAGES.find(page => canAccessPage(page)) || 'dashboard';
+    setActiveTab(fallback);
+  }, [activeTab, canAccessPage]);
+
   const [quickAddTitle, setQuickAddTitle] = useState('');
   const [isQuickAdding, setIsQuickAdding] = useState(false);
 
   const stats = useMemo(() => {
-    const open = tasks.filter(t => t.status !== Status.DONE);
+    const open = scopedTasks.filter(t => t.status !== Status.DONE);
     const risks = open.filter(t => t.priority === Priority.HIGH || t.status === Status.BLOCKED);
     return {
       openCount: open.length,
       riskCount: risks.length,
       carryCount: open.filter(t => t.carry).length,
-      handoverCount: handovers.filter(h => h.status === 'Pending').length
+      handoverCount: scopedHandovers.filter(h => h.status === 'Pending').length
     };
-  }, [tasks, handovers]);
+  }, [scopedTasks, scopedHandovers]);
 
   const [copilotMessages, setCopilotMessages] = useState<{role: 'user' | 'assistant', content: string, timestamp: number}[]>([
     { role: 'assistant', content: 'Operational intelligence is ready. How can I assist with your shift flow or risk synthesis today?', timestamp: Date.now() }
@@ -100,7 +107,7 @@ export default function App() {
           owner: user.name,
           country: user.country || 'KSA',
           office: user.office || OFFICES[0].name,
-          team: user.role || TEAMS[0],
+          team: currentTeam || TEAMS[0],
           creatorId: 'local-workspace',
           due: new Date().toISOString().split('T')[0],
           carry: false,
@@ -125,20 +132,20 @@ export default function App() {
   }
 
   if (!auth.isAuthenticated) {
-    return <Login onLogin={login} isLocked={auth.isLocked} />;
+    return <Login onLogin={login} isLocked={auth.isLocked} passwordless={settings.authMode === 'none'} />;
   }
 
   const renderContent = () => {
     switch (activeTab) {
-      case 'dashboard': return <Dashboard tasks={tasks} handovers={handovers} offices={offices} stats={stats} onActionRisks={() => openTasks('risk')} onGenerateBrief={() => setActiveTab('ai')} onNavigate={(tab, filter, status) => tab === 'tasks' ? openTasks(filter, status) : setActiveTab(tab as any)} />;
-      case 'tasks': return <TaskBoard tasks={tasks} initialFilter={taskFilterPreset} initialStatus={taskStatusPreset} />;
-      case 'handover': return <HandoverFlow handovers={handovers} tasks={tasks} stats={stats} aiInteractions={copilotMessages} />;
-      case 'offices': return <OfficeRegister offices={offices} tasks={tasks} />;
-      case 'team': return <TeamPerformance members={members} offices={offices} tasks={tasks} handovers={handovers} />;
-      case 'reports': return <Reporting tasks={tasks} handovers={handovers} stats={stats} />;
-      case 'ai': return <AICopilot tasks={tasks} handovers={handovers} messages={copilotMessages} setMessages={setCopilotMessages} />;
+      case 'dashboard': return <Dashboard tasks={scopedTasks} handovers={scopedHandovers} offices={scopedOffices} stats={stats} onActionRisks={() => openTasks('risk')} onGenerateBrief={() => setActiveTab(canAccessPage('ai') ? 'ai' : 'settings')} onNavigate={(tab, filter, status) => tab === 'tasks' ? openTasks(filter, status) : setActiveTab(tab as any)} />;
+      case 'tasks': return <TaskBoard tasks={scopedTasks} initialFilter={taskFilterPreset} initialStatus={taskStatusPreset} />;
+      case 'handover': return <HandoverFlow handovers={scopedHandovers} tasks={scopedTasks} stats={stats} aiInteractions={copilotMessages} />;
+      case 'offices': return <OfficeRegister offices={scopedOffices} tasks={scopedTasks} />;
+      case 'team': return <TeamPerformance members={scopedMembers} offices={scopedOffices} tasks={scopedTasks} handovers={scopedHandovers} />;
+      case 'reports': return <Reporting tasks={scopedTasks} handovers={scopedHandovers} stats={stats} />;
+      case 'ai': return <AICopilot tasks={scopedTasks} handovers={scopedHandovers} messages={copilotMessages} setMessages={setCopilotMessages} />;
       case 'settings': return <SettingsView activeTab={settingsTab} setActiveTab={setSettingsTab} />;
-      default: return <Dashboard tasks={tasks} handovers={handovers} offices={offices} stats={stats} onActionRisks={() => openTasks('risk')} onGenerateBrief={() => setActiveTab('ai')} onNavigate={(tab, filter, status) => tab === 'tasks' ? openTasks(filter, status) : setActiveTab(tab as any)} />;
+      default: return <Dashboard tasks={scopedTasks} handovers={scopedHandovers} offices={scopedOffices} stats={stats} onActionRisks={() => openTasks('risk')} onGenerateBrief={() => setActiveTab(canAccessPage('ai') ? 'ai' : 'settings')} onNavigate={(tab, filter, status) => tab === 'tasks' ? openTasks(filter, status) : setActiveTab(tab as any)} />;
     }
   };
 
@@ -176,8 +183,8 @@ export default function App() {
           </div>
           
           <div className="flex items-center gap-4">
-            <div className="relative group">
-              <Search className="absolute left-3 top-1/2 -translate-y-1/2 w-4 h-4 text-muted group-focus-within:text-citrus transition-colors" />
+          <div className="relative group">
+            <Search className="absolute left-3 top-1/2 -translate-y-1/2 w-4 h-4 text-muted group-focus-within:text-citrus transition-colors" />
               <input 
                 type="text" 
                 placeholder="Find anything..." 
@@ -202,7 +209,7 @@ export default function App() {
               />
             </div>
 
-            {activeTab !== 'settings' && (
+            {activeTab !== 'settings' && canUseFeature('task.create') && (
               <button 
               onClick={() => setIsGlobalTaskModalOpen(true)}
                 className="flex items-center gap-2 px-4 py-2 bg-ink text-white rounded-xl font-semibold text-sm hover:bg-ink/90 transition-all shadow-sm"

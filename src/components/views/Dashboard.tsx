@@ -3,6 +3,7 @@ import { Office, Task, Handover, Priority, Status } from '../../types';
 import { AlertCircle, ArrowRight, Zap, TrendingUp, Clock, Layout, CheckSquare, Globe, RefreshCw, ChevronRight, User, MapPin, CheckCircle } from 'lucide-react';
 import { motion } from 'motion/react';
 import { COUNTRY_FLAGS } from '../../constants';
+import { useLocalData } from '../LocalDataContext';
 
 interface DashboardProps {
   tasks: Task[];
@@ -20,6 +21,7 @@ interface DashboardProps {
 }
 
 export default function Dashboard({ tasks, handovers, offices, stats, onActionRisks, onGenerateBrief, onNavigate }: DashboardProps) {
+  const { isWidgetEnabled } = useLocalData();
   const highRiskTasks = [...tasks]
     .filter(t => t.status !== Status.DONE && (t.priority === Priority.HIGH || t.status === Status.BLOCKED))
     .sort((a, b) => new Date(a.due).getTime() - new Date(b.due).getTime())
@@ -57,6 +59,7 @@ export default function Dashboard({ tasks, handovers, offices, stats, onActionRi
           </div>
         </div>
 
+        {isWidgetEnabled('workspaceHealth') && (
         <div className="glass-card flex flex-col justify-between p-8 border-dawn">
           <div>
             <div className="flex justify-between items-start mb-8">
@@ -102,6 +105,7 @@ export default function Dashboard({ tasks, handovers, offices, stats, onActionRi
             Synced with Cairo HQ Operations Node.
           </p>
         </div>
+        )}
       </section>
 
       {/* KPI Stats Row */}
@@ -128,6 +132,7 @@ export default function Dashboard({ tasks, handovers, offices, stats, onActionRi
 
       {/* Priority Queue & Shift Timeline */}
       <section className="grid grid-cols-1 xl:grid-cols-3 gap-8">
+        {isWidgetEnabled('priorityQueue') && (
         <div className="xl:col-span-2 space-y-6">
           <div className="flex items-center justify-between px-2">
             <div className="flex items-center gap-3">
@@ -199,7 +204,9 @@ export default function Dashboard({ tasks, handovers, offices, stats, onActionRi
             </table>
           </div>
         </div>
+        )}
 
+        {isWidgetEnabled('shiftTimeline') && (
         <div className="space-y-6">
            <div className="flex items-center justify-between px-2">
             <div className="flex items-center gap-3">
@@ -241,9 +248,11 @@ export default function Dashboard({ tasks, handovers, offices, stats, onActionRi
             )}
           </div>
         </div>
+        )}
       </section>
 
       {/* Regional Office Grid */}
+      {isWidgetEnabled('operatingHubs') && (
       <section className="space-y-6">
         <div className="flex items-center justify-between px-2">
           <div className="flex items-center gap-3">
@@ -314,6 +323,7 @@ export default function Dashboard({ tasks, handovers, offices, stats, onActionRi
           })}
         </div>
       </section>
+      )}
     </div>
   );
 }

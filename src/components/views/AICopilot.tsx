@@ -1,13 +1,33 @@
-import React, { useState, useRef, useEffect } from 'react';
-import { Task, Handover } from '../../types';
+import React, { useEffect, useMemo, useRef, useState } from 'react';
 import {
-  Send, Bot, User, Sparkles, AlertCircle, Copy, CheckCircle2,
-  RefreshCw, Code, Trash2, Cloud, HardDrive, Check, X, ChevronDown,
-  Play, Download, Save,
+  AlertCircle,
+  Bot,
+  Check,
+  CheckCircle2,
+  ChevronLeft,
+  ChevronRight,
+  Cloud,
+  Code,
+  Copy,
+  Download,
+  HardDrive,
+  Play,
+  Save,
+  Send,
+  Sparkles,
+  Trash2,
+  User,
+  Wand2,
 } from 'lucide-react';
+import { Handover, Task } from '../../types';
+import { chatWithWorkspaceAI } from '../../lib/apiService';
 import { useLocalData } from '../LocalDataContext';
 
-interface Message { role: 'user' | 'assistant'; content: string; timestamp: number; }
+interface Message {
+  role: 'user' | 'assistant';
+  content: string;
+  timestamp: number;
+}
 
 interface AICopilotProps {
   tasks: Task[];
@@ -16,385 +36,344 @@ interface AICopilotProps {
   setMessages: React.Dispatch<React.SetStateAction<Message[]>>;
 }
 
-const API_KEYS_STORE = 'trygc_api_keys_v1';
 const STUDIO_SAVES_STORE = 'trygc_studio_saves';
 
-function getApiKey(p: string): string {
-  try { return (JSON.parse(localStorage.getItem(API_KEYS_STORE) || '{}') as Record<string, string>)[p] || ''; } catch { return ''; }
-}
-
-// ── inline provider call (keeps conversation history) ────────────────────────
-async function callCloud(provider: string, model: string, endpoint: string, history: Message[], sys: string): Promise<string> {
-  const key = getApiKey(provider);
-  if (!key && provider !== 'local') throw new Error(`No API key for ${provider}. Add it in Settings → AI & API.`);
-
-  const msgs = history.map(m => ({ role: m.role === 'assistant' ? (provider === 'gemini' ? 'model' : 'assistant') : 'user', content: m.content }));
-  const controller = new AbortController();
-  const timeout = setTimeout(() => controller.abort(), 20000);
-
-  const post = (url: string, body: unknown, headers: Record<string, string> = {}) =>
-    fetch(url, { method: 'POST', headers: { 'Content-Type': 'application/json', ...headers }, body: JSON.stringify(body), signal: controller.signal });
-
-  try {
-    if (provider === 'gemini') {
-      const res = await post(
-        `https://generativelanguage.googleapis.com/v1beta/models/${model || 'gemini-1.5-flash'}:generateContent`,
-        { systemInstruction: { parts: [{ text: sys }] }, contents: msgs.map(m => ({ role: m.role, parts: [{ text: m.content }] })) },
-        { 'x-goog-api-key': key }
-      );
-      if (!res.ok) { const e = await res.json().catch(() => ({})); throw new Error((e as any)?.error?.message || `Gemini ${res.status}`); }
-      return (await res.json())?.candidates?.[0]?.content?.parts?.[0]?.text || 'No response.';
-    }
-    if (provider === 'anthropic') {
-      const res = await post(endpoint || 'https://api.anthropic.com/v1/messages',
-        { model: model || 'claude-3-5-haiku-20241022', max_tokens: 1200, system: sys, messages: msgs },
-        { 'x-api-key': key, 'anthropic-version': '2023-06-01', 'anthropic-dangerous-direct-browser-access': 'true' }
-      );
-      if (!res.ok) { const e = await res.json().catch(() => ({})); throw new Error((e as any)?.error?.message || `Anthropic ${res.status}`); }
-      return (await res.json())?.content?.[0]?.text || 'No response.';
-    }
-    if (provider === 'local') {
-      const base = endpoint || 'http://localhost:11434';
-      const res = await post((base.endsWith('/') ? base : base + '/') + 'api/chat',
-        { model: model || 'llama3', messages: [{ role: 'system', content: sys }, ...msgs], stream: false }
-      );
-      if (!res.ok) throw new Error(`Ollama ${res.status} — is the server running?`);
-      const d = await res.json(); return d?.message?.content || 'No response.';
-    }
-    // openai / groq / alibaba / custom
-    const url = endpoint || (provider === 'groq' ? 'https://api.groq.com/openai/v1/chat/completions' : provider === 'alibaba' ? 'https://dashscope.aliyuncs.com/compatible-mode/v1/chat/completions' : 'https://api.openai.com/v1/chat/completions');
-    const res = await post(url, { model: model || 'gpt-4o', messages: [{ role: 'system', content: sys }, ...msgs], max_tokens: 1200 }, { Authorization: `Bearer ${key}` });
-    if (!res.ok) { const e = await res.json().catch(() => ({})); throw new Error((e as any)?.error?.message || `${provider} ${res.status}`); }
-    return (await res.json())?.choices?.[0]?.message?.content || 'No response.';
-  } finally {
-    clearTimeout(timeout);
-  }
-}
-
-// ── local offline responses ───────────────────────────────────────────────────
-function localReply(msg: string, tasks: Task[], handovers: Handover[]): string {
-  const q = msg.toLowerCase();
-  if (q.includes('risk') || q.includes('alert') || q.includes('block')) {
-    const hi = tasks.filter(t => t.priority === 'High');
-    const bl = tasks.filter(t => t.status === 'Blocked');
-    return `**Risk Snapshot**\n\n- 🔴 ${hi.length} high-priority task${hi.length !== 1 ? 's' : ''}\n- 🚫 ${bl.length} blocked\n${hi.slice(0, 3).map(t => `- [${t.status}] ${t.title}`).join('\n')}\n\nReview carry-overs and confirm SLA compliance.`;
-  }
-  if (q.includes('handover') || q.includes('shift')) {
-    const pend = handovers.filter(h => h.status === 'Pending').length;
-    return `**Handover Status**\n\n- ${pend} pending handover${pend !== 1 ? 's' : ''}\n- ${tasks.filter(t => t.status !== 'Done').length} active tasks remaining\n\nAcknowledge incoming relays before shift end.`;
-  }
-  if (q.includes('task') || q.includes('status') || q.includes('summary')) {
-    return `**Task Overview**\n\n- ✅ ${tasks.filter(t => t.status === 'Done').length} done\n- 🔄 ${tasks.filter(t => t.status === 'In Progress').length} in progress\n- 🚫 ${tasks.filter(t => t.status === 'Blocked').length} blocked\n- 📋 ${tasks.length} total`;
-  }
-  return `I'm running in **local mode** with ${tasks.length} tasks and ${handovers.length} handovers in context.\n\nSwitch to **Cloud** mode and add an API key in Settings → AI & API for full AI responses.`;
-}
-
-// ── simple markdown renderer ─────────────────────────────────────────────────
 function Md({ content }: { content: string }) {
-  const parts = content.split('\n').reduce<React.ReactNode[]>((acc, line, i) => {
-    if (line.startsWith('**') && line.endsWith('**') && !line.slice(2, -2).includes('**')) {
-      acc.push(<p key={i} className="font-bold text-sm text-ink mb-0.5">{line.slice(2, -2)}</p>);
-    } else if (line.startsWith('- ')) {
-      const text = line.slice(2).replace(/\*\*([^*]+)\*\*/g, '__$1__');
-      acc.push(<li key={i} className="flex gap-2 text-sm text-ink/80 leading-relaxed"><span className="text-citrus shrink-0 mt-0.5">·</span><span dangerouslySetInnerHTML={{ __html: text.replace(/__([^_]+)__/g, '<strong>$1</strong>') }} /></li>);
-    } else if (line.trim()) {
-      acc.push(<p key={i} className="text-sm text-ink/80 leading-relaxed">{line.replace(/\*\*([^*]+)\*\*/g, (_, m) => m).split(/(\*\*[^*]+\*\*)/g).map((p, j) => p.startsWith('**') ? <strong key={j}>{p.slice(2,-2)}</strong> : p)}</p>);
-    }
-    return acc;
-  }, []);
-  return <div className="space-y-1">{parts}</div>;
+  return (
+    <div className="space-y-2">
+      {content.split('\n').filter(Boolean).map((line, index) => {
+        if (line.startsWith('- ')) {
+          return (
+            <div key={index} className="flex gap-2 text-sm text-ink/80 leading-relaxed">
+              <span className="text-citrus mt-0.5">•</span>
+              <span>{line.slice(2)}</span>
+            </div>
+          );
+        }
+        if (line.startsWith('## ')) {
+          return <p key={index} className="text-sm font-black text-ink">{line.slice(3)}</p>;
+        }
+        return <p key={index} className="text-sm text-ink/80 leading-relaxed">{line}</p>;
+      })}
+    </div>
+  );
 }
 
-// ── main component ────────────────────────────────────────────────────────────
 export default function AICopilot({ tasks, handovers, messages, setMessages }: AICopilotProps) {
-  const { settings } = useLocalData();
+  const { settings, canUseFeature, isWidgetEnabled, currentTeam } = useLocalData();
   const [input, setInput] = useState('');
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState('');
-  const [mode, setMode] = useState<'local' | 'cloud'>('local');
   const [copiedId, setCopiedId] = useState<number | null>(null);
-  const [showStudio, setShowStudio] = useState(false);
-  const [previewCode, setPreviewCode] = useState('<!-- paste or generate HTML here -->\n<div style="padding:40px;font-family:sans-serif;color:#1e293b;text-align:center">\n  <h1>Ops Visualizer</h1>\n  <p style="opacity:.5">Type /render html to generate.</p>\n</div>');
+  const [leftOpen, setLeftOpen] = useState(true);
+  const [showStudio, setShowStudio] = useState(isWidgetEnabled('aiStudio'));
+  const [previewCode, setPreviewCode] = useState('<div style="padding:32px;font-family:Inter,sans-serif"><h1>TryGC AI Studio</h1><p>Use the quick actions to generate an operations visual.</p></div>');
   const [studioSaved, setStudioSaved] = useState(false);
-  const [inputFocused, setInputFocused] = useState(false);
 
-  const scrollRef = useRef<HTMLDivElement>(null);
-  const inputRef = useRef<HTMLInputElement>(null);
+  const scrollerRef = useRef<HTMLDivElement>(null);
   const iframeRef = useRef<HTMLIFrameElement>(null);
 
+  const activeProvider = settings.aiProvider || 'gemini';
+  const fallbackProviders = settings.fallbackProviders?.length ? settings.fallbackProviders.join(' → ') : 'local → openai → anthropic → groq';
+  const openCount = tasks.filter(task => task.status !== 'Done').length;
+  const riskCount = tasks.filter(task => task.status !== 'Done' && (task.priority === 'High' || task.status === 'Blocked')).length;
+  const pendingHandovers = handovers.filter(handover => handover.status === 'Pending').length;
+
+  const tasksSummary = `${openCount} open tasks, ${riskCount} risk tasks, ${tasks.filter(task => task.carry).length} carry-over tasks for ${currentTeam}.`;
+  const handoverSummary = `${pendingHandovers} pending handovers, ${handovers.filter(handover => handover.status === 'Acknowledged').length} acknowledged.`;
+
   useEffect(() => {
-    if (scrollRef.current) scrollRef.current.scrollTop = scrollRef.current.scrollHeight;
+    if (scrollerRef.current) {
+      scrollerRef.current.scrollTop = scrollerRef.current.scrollHeight;
+    }
   }, [messages, loading]);
 
-  const providerLabel = (settings.aiProvider || 'gemini').charAt(0).toUpperCase() + (settings.aiProvider || 'gemini').slice(1);
-  const hasKey = !!getApiKey(settings.aiProvider || 'gemini') || settings.aiProvider === 'local';
-
-  const sys = `You are an AI operations assistant for TryGC Hub Manager.\nContext: ${tasks.length} tasks (${tasks.filter(t=>t.status==='Done').length} done, ${tasks.filter(t=>t.status==='Blocked').length} blocked, ${tasks.filter(t=>t.priority==='High').length} high-priority), ${handovers.filter(h=>h.status==='Pending').length} pending handovers. Be concise and operational.`;
+  const quickActions = useMemo(() => [
+    { label: 'Risk Brief', prompt: 'Give me the current risk brief with the top items to act on first.' },
+    { label: 'Shift Summary', prompt: 'Summarize the active handover state for the incoming shift.' },
+    { label: 'Task Coaching', prompt: 'Tell me what the operations lead should clean up in the task register today.' },
+    { label: 'Community Review', prompt: 'Focus only on the community workflow and tell me the weak points.' },
+  ], []);
 
   const send = async (override?: string) => {
     const text = (override ?? input).trim();
     if (!text || loading) return;
-    setInput(''); setError('');
-    const userMsg: Message = { role: 'user', content: text, timestamp: Date.now() };
-    setMessages(prev => [...prev, userMsg]);
 
-    // /clear command
-    if (text === '/clear') { setMessages([{ role: 'assistant', content: 'Chat cleared. How can I help?', timestamp: Date.now() }]); return; }
-
-    // /render html command
-    if (text.startsWith('/render html')) {
-      setShowStudio(true);
-      const html = `<div style="padding:30px;font-family:sans-serif;background:#f8fafc;border-radius:16px;border:1px solid #e2e8f0"><h2>Risk Report</h2><div style="display:flex;gap:12px"><div style="background:#fee2e2;color:#ef4444;padding:14px;border-radius:10px;flex:1"><b>High Risk</b><div style="font-size:28px;font-weight:bold">${tasks.filter(t=>t.priority==='High').length}</div></div><div style="background:#fef9c3;color:#ca8a04;padding:14px;border-radius:10px;flex:1"><b>Pending</b><div style="font-size:28px;font-weight:bold">${handovers.filter(h=>h.status==='Pending').length}</div></div><div style="background:#dcfce7;color:#16a34a;padding:14px;border-radius:10px;flex:1"><b>Done</b><div style="font-size:28px;font-weight:bold">${tasks.filter(t=>t.status==='Done').length}</div></div></div></div>`;
-      setPreviewCode(html);
-      setMessages(prev => [...prev, { role: 'assistant', content: 'Visualization ready — see the Studio panel below.', timestamp: Date.now() }]);
+    if (!canUseFeature('ai.use')) {
+      setError('Your current role does not have access to the AI workspace.');
       return;
     }
 
+    const userMessage: Message = { role: 'user', content: text, timestamp: Date.now() };
+    setMessages(prev => [...prev, userMessage]);
+    setInput('');
+    setError('');
     setLoading(true);
+
     try {
-      let reply: string;
-      if (mode === 'cloud') {
-        const history: Message[] = [...messages, userMsg];
-        reply = await callCloud(settings.aiProvider || 'gemini', settings.aiModel || '', settings.aiEndpoint || '', history, sys);
-      } else {
-        await new Promise(r => setTimeout(r, 350));
-        reply = localReply(text, tasks, handovers);
-      }
-      setMessages(prev => [...prev, { role: 'assistant', content: reply, timestamp: Date.now() }]);
-    } catch (e: unknown) {
-      const msg = e instanceof Error ? e.message : 'Unknown error';
-      setError(msg);
-      setMessages(prev => [...prev, { role: 'assistant', content: `Sorry, I ran into an issue: ${msg}`, timestamp: Date.now() }]);
-    } finally { setLoading(false); }
+      const result = await chatWithWorkspaceAI({
+        history: [...messages, userMessage].map(message => ({ role: message.role, content: message.content })),
+        tasksSummary,
+        handoverSummary,
+      });
+
+      setMessages(prev => [...prev, {
+        role: 'assistant',
+        content: result.provider === 'mock'
+          ? `${result.text}\n\nFallback path used: ${fallbackProviders}`
+          : `${result.text}\n\nProvider: ${result.provider}`,
+        timestamp: Date.now(),
+      }]);
+    } catch (err: unknown) {
+      const message = err instanceof Error ? err.message : 'Unexpected AI error';
+      setError(message);
+      setMessages(prev => [...prev, { role: 'assistant', content: `I hit an issue: ${message}`, timestamp: Date.now() }]);
+    } finally {
+      setLoading(false);
+    }
   };
 
-  const copyMsg = (content: string, i: number) => {
-    navigator.clipboard.writeText(content).then(() => { setCopiedId(i); setTimeout(() => setCopiedId(null), 1500); });
+  const copyMessage = async (content: string, index: number) => {
+    await navigator.clipboard.writeText(content);
+    setCopiedId(index);
+    setTimeout(() => setCopiedId(null), 1200);
+  };
+
+  const renderOpsStudio = () => {
+    const html = `
+      <div style="padding:24px;font-family:Inter,sans-serif;background:#f8fafc;min-height:100vh">
+        <div style="display:grid;grid-template-columns:repeat(3,minmax(0,1fr));gap:16px;margin-bottom:20px">
+          <div style="padding:18px;border-radius:18px;background:#ffffff;border:1px solid #e2e8f0"><div style="font-size:12px;color:#64748b;text-transform:uppercase;font-weight:700">Open Tasks</div><div style="font-size:36px;font-weight:800;color:#0f172a">${openCount}</div></div>
+          <div style="padding:18px;border-radius:18px;background:#ffffff;border:1px solid #e2e8f0"><div style="font-size:12px;color:#64748b;text-transform:uppercase;font-weight:700">Risk Queue</div><div style="font-size:36px;font-weight:800;color:#dc2626">${riskCount}</div></div>
+          <div style="padding:18px;border-radius:18px;background:#ffffff;border:1px solid #e2e8f0"><div style="font-size:12px;color:#64748b;text-transform:uppercase;font-weight:700">Pending Handovers</div><div style="font-size:36px;font-weight:800;color:#2563eb">${pendingHandovers}</div></div>
+        </div>
+        <div style="padding:20px;border-radius:20px;background:#ffffff;border:1px solid #e2e8f0">
+          <h2 style="margin:0 0 12px 0;color:#0f172a">Operational Focus</h2>
+          <p style="margin:0;color:#475569;line-height:1.6">Team scope: ${currentTeam}. This visual is generated locally so your workspace keeps working even if a cloud provider is down.</p>
+        </div>
+      </div>
+    `;
+    setPreviewCode(html);
   };
 
   const saveStudio = () => {
     const saves = JSON.parse(localStorage.getItem(STUDIO_SAVES_STORE) || '[]');
     saves.unshift({ code: previewCode, savedAt: new Date().toISOString() });
-    localStorage.setItem(STUDIO_SAVES_STORE, JSON.stringify(saves.slice(0, 10)));
-    setStudioSaved(true); setTimeout(() => setStudioSaved(false), 2000);
+    localStorage.setItem(STUDIO_SAVES_STORE, JSON.stringify(saves.slice(0, 12)));
+    setStudioSaved(true);
+    setTimeout(() => setStudioSaved(false), 1500);
   };
 
   const downloadStudio = () => {
-    const a = document.createElement('a');
-    a.href = URL.createObjectURL(new Blob([previewCode], { type: 'text/html' }));
-    a.download = `ops-viz-${Date.now()}.html`; a.click();
+    const anchor = document.createElement('a');
+    anchor.href = URL.createObjectURL(new Blob([previewCode], { type: 'text/html' }));
+    anchor.download = `trygc-ai-studio-${Date.now()}.html`;
+    anchor.click();
   };
 
-  const QUICK = [
-    { label: '🔴 Risks', cmd: 'Show current risks and blocked tasks' },
-    { label: '📋 Tasks', cmd: 'Give me a task status summary' },
-    { label: '🔄 Handovers', cmd: 'Summarize pending handovers' },
-    { label: '📊 Visualize', cmd: '/render html ops dashboard' },
-  ];
-
   return (
-    <div className="flex flex-col gap-4 h-[calc(100vh-140px)]">
-
-      {/* ── Chat card ── */}
-      <div className="flex-1 flex flex-col bg-white rounded-[28px] border border-dawn shadow-lg overflow-hidden min-h-0">
-
-        {/* Header */}
-        <div className="flex items-center justify-between px-5 py-3 border-b border-dawn bg-stone/30 shrink-0">
-          <div className="flex items-center gap-3">
-            <div className="w-9 h-9 bg-ink text-white rounded-xl flex items-center justify-center shadow">
-              <Bot className="w-4.5 h-4.5" />
-            </div>
+    <div className="h-[calc(100vh-140px)] flex gap-4">
+      <aside className={`${leftOpen ? 'w-[320px]' : 'w-14'} transition-all duration-300 bg-white border border-dawn rounded-[28px] shadow-lg overflow-hidden flex flex-col`}>
+        <div className="flex items-center justify-between px-4 py-4 border-b border-dawn">
+          {leftOpen && (
             <div>
-              <span className="block text-sm font-black text-ink">AI Copilot</span>
-              <div className="flex items-center gap-1.5">
-                <span className={`w-1.5 h-1.5 rounded-full ${mode === 'cloud' && hasKey ? 'bg-blue-500' : 'bg-green-400'} animate-pulse`} />
-                <span className="text-[10px] font-bold text-muted">
-                  {mode === 'local' ? 'Local mode' : `${providerLabel}`}
-                </span>
-              </div>
+              <p className="text-sm font-black text-ink">AI Workspace</p>
+              <p className="text-[10px] font-bold uppercase tracking-[0.2em] text-muted">Provider and shortcuts</p>
             </div>
-          </div>
-
-          <div className="flex items-center gap-2">
-            {/* Mode toggle */}
-            <div className="flex bg-stone border border-dawn rounded-xl p-0.5">
-              <button
-                onClick={() => setMode('local')}
-                className={`flex items-center gap-1.5 px-3 py-1.5 rounded-lg text-[10px] font-black uppercase tracking-wide transition-all ${mode === 'local' ? 'bg-white shadow text-ink' : 'text-muted hover:text-ink'}`}
-              >
-                <HardDrive className="w-3 h-3" /> Local
-              </button>
-              <button
-                onClick={() => setMode('cloud')}
-                title={!hasKey ? `Add a ${providerLabel} API key in Settings → AI & API` : ''}
-                className={`flex items-center gap-1.5 px-3 py-1.5 rounded-lg text-[10px] font-black uppercase tracking-wide transition-all ${mode === 'cloud' ? 'bg-white shadow text-blue-600' : 'text-muted hover:text-ink'} ${!hasKey ? 'opacity-50' : ''}`}
-              >
-                <Cloud className="w-3 h-3" /> Cloud
-              </button>
-            </div>
-
-            {/* Studio toggle */}
-            <button
-              onClick={() => setShowStudio(v => !v)}
-              title="HTML Studio"
-              className={`p-2 rounded-xl border transition-all text-[10px] font-black uppercase tracking-wide flex items-center gap-1.5 ${showStudio ? 'bg-ink text-white border-ink' : 'border-dawn text-muted hover:text-ink'}`}
-            >
-              <Code className="w-3.5 h-3.5" />
-            </button>
-
-            {/* Clear */}
-            <button
-              onClick={() => { setMessages([{ role: 'assistant', content: 'Chat cleared. How can I help?', timestamp: Date.now() }]); setError(''); }}
-              title="Clear chat"
-              className="p-2 rounded-xl border border-transparent text-muted hover:text-red-500 hover:bg-red-50 transition-all"
-            >
-              <Trash2 className="w-3.5 h-3.5" />
-            </button>
-          </div>
+          )}
+          <button onClick={() => setLeftOpen(open => !open)} className="w-8 h-8 rounded-xl border border-dawn flex items-center justify-center text-muted hover:text-ink">
+            {leftOpen ? <ChevronLeft className="w-4 h-4" /> : <ChevronRight className="w-4 h-4" />}
+          </button>
         </div>
 
-        {/* No-key warning */}
-        {mode === 'cloud' && !hasKey && (
-          <div className="mx-4 mt-3 px-4 py-2.5 bg-amber-50 border border-amber-200 rounded-xl text-xs font-bold text-amber-700 flex items-center gap-2 shrink-0">
-            <AlertCircle className="w-3.5 h-3.5 shrink-0" />
-            No API key for {providerLabel} — add one in <span className="underline cursor-pointer ml-1">Settings → AI & API</span>
-          </div>
-        )}
-
-        {/* Messages */}
-        <div ref={scrollRef} className="flex-1 overflow-y-auto px-5 py-4 space-y-4 custom-scrollbar">
-          {messages.map((m, i) => (
-            <div key={i} className={`flex gap-3 group ${m.role === 'user' ? 'flex-row-reverse' : ''}`}>
-              {/* Avatar */}
-              <div className={`w-8 h-8 rounded-xl flex items-center justify-center shrink-0 shadow-sm ${m.role === 'user' ? 'bg-stone border border-dawn' : 'bg-citrus text-white'}`}>
-                {m.role === 'user' ? <User className="w-4 h-4 text-muted" /> : <Sparkles className="w-4 h-4" />}
-              </div>
-
-              {/* Bubble */}
-              <div className={`relative max-w-[78%] ${m.role === 'user' ? 'items-end' : 'items-start'} flex flex-col gap-1`}>
-                <div className={`px-4 py-3 rounded-2xl text-sm leading-relaxed shadow-sm ${
-                  m.role === 'user'
-                    ? 'bg-ink text-white rounded-tr-sm'
-                    : 'bg-stone/60 border border-dawn text-ink rounded-tl-sm'
-                }`}>
-                  {m.role === 'assistant' ? <Md content={m.content} /> : m.content}
+        {leftOpen && (
+          <div className="flex-1 overflow-y-auto p-4 space-y-4 custom-scrollbar">
+            {isWidgetEnabled('aiProviderPanel') && (
+              <div className="p-4 bg-stone/40 rounded-2xl border border-dawn space-y-3">
+                <div className="flex items-center justify-between">
+                  <span className="text-[10px] font-black uppercase tracking-[0.2em] text-muted">Active Provider</span>
+                  <span className="px-2 py-1 bg-citrus/10 text-citrus rounded-lg text-[9px] font-black uppercase">{activeProvider}</span>
                 </div>
-                <div className={`flex items-center gap-2 ${m.role === 'user' ? 'flex-row-reverse' : ''}`}>
-                  <span className="text-[9px] text-muted/40 font-medium">
-                    {m.timestamp ? new Date(m.timestamp).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' }) : ''}
-                  </span>
+                <div className="grid grid-cols-2 gap-3 text-[10px] font-bold text-muted">
+                  <div className="p-3 bg-white rounded-xl border border-dawn">
+                    <div className="flex items-center gap-2 mb-2"><Cloud className="w-3.5 h-3.5" />Primary</div>
+                    <p className="text-ink">{settings.aiModel || 'Default model'}</p>
+                  </div>
+                  <div className="p-3 bg-white rounded-xl border border-dawn">
+                    <div className="flex items-center gap-2 mb-2"><HardDrive className="w-3.5 h-3.5" />Fallback</div>
+                    <p className="text-ink">Local-first</p>
+                  </div>
+                </div>
+                <p className="text-[10px] font-bold text-muted leading-relaxed">Fallback chain: {fallbackProviders}</p>
+              </div>
+            )}
+
+            <div className="p-4 bg-ink text-white rounded-2xl space-y-3">
+              <div className="flex items-center gap-2">
+                <Sparkles className="w-4 h-4 text-citrus" />
+                <span className="text-[10px] font-black uppercase tracking-[0.2em]">Live Scope</span>
+              </div>
+              <div className="grid grid-cols-2 gap-3">
+                <div>
+                  <p className="text-2xl font-black">{openCount}</p>
+                  <p className="text-[10px] font-bold text-white/60 uppercase">Open Tasks</p>
+                </div>
+                <div>
+                  <p className="text-2xl font-black">{pendingHandovers}</p>
+                  <p className="text-[10px] font-bold text-white/60 uppercase">Pending Handover</p>
+                </div>
+              </div>
+              <p className="text-[11px] font-bold text-white/70">{currentTeam}</p>
+            </div>
+
+            {isWidgetEnabled('aiQuickPrompts') && (
+              <div className="space-y-2">
+                <p className="text-[10px] font-black uppercase tracking-[0.2em] text-muted">Quick Actions</p>
+                {quickActions.map(action => (
                   <button
-                    onClick={() => copyMsg(m.content, i)}
-                    className="opacity-0 group-hover:opacity-100 transition-opacity"
-                    title="Copy"
+                    key={action.label}
+                    onClick={() => send(action.prompt)}
+                    className="w-full p-3 bg-white border border-dawn rounded-2xl text-left hover:border-citrus/30 hover:bg-citrus/5 transition-all"
                   >
-                    {copiedId === i
-                      ? <Check className="w-3 h-3 text-green-500" />
-                      : <Copy className="w-3 h-3 text-muted hover:text-ink" />}
+                    <p className="text-xs font-black text-ink">{action.label}</p>
+                    <p className="text-[10px] font-bold text-muted mt-1">{action.prompt}</p>
+                  </button>
+                ))}
+              </div>
+            )}
+
+            {isWidgetEnabled('aiStudio') && (
+              <div className="p-4 bg-stone/40 rounded-2xl border border-dawn space-y-3">
+                <div className="flex items-center justify-between">
+                  <p className="text-[10px] font-black uppercase tracking-[0.2em] text-muted">Studio</p>
+                  <button onClick={() => setShowStudio(show => !show)} className="text-[9px] font-black uppercase tracking-widest text-citrus">
+                    {showStudio ? 'Hide' : 'Show'}
                   </button>
                 </div>
-              </div>
-            </div>
-          ))}
-
-          {/* Typing indicator */}
-          {loading && (
-            <div className="flex gap-3">
-              <div className="w-8 h-8 rounded-xl bg-citrus text-white flex items-center justify-center shrink-0 shadow-sm">
-                <RefreshCw className="w-4 h-4 animate-spin" />
-              </div>
-              <div className="px-4 py-3 bg-stone/60 border border-dawn rounded-2xl rounded-tl-sm">
-                <div className="flex gap-1.5 items-center h-4">
-                  <span className="w-1.5 h-1.5 bg-muted/40 rounded-full animate-bounce" style={{ animationDelay: '0ms' }} />
-                  <span className="w-1.5 h-1.5 bg-muted/40 rounded-full animate-bounce" style={{ animationDelay: '150ms' }} />
-                  <span className="w-1.5 h-1.5 bg-muted/40 rounded-full animate-bounce" style={{ animationDelay: '300ms' }} />
-                </div>
-              </div>
-            </div>
-          )}
-        </div>
-
-        {/* Input area */}
-        <div className="px-4 pb-4 pt-2 border-t border-dawn bg-white shrink-0">
-          {/* Error */}
-          {error && (
-            <div className="mb-2 flex items-center gap-2 px-3 py-2 bg-red-50 border border-red-100 rounded-xl text-xs font-bold text-red-600">
-              <AlertCircle className="w-3.5 h-3.5 shrink-0" />
-              <span className="flex-1 line-clamp-1">{error}</span>
-              <button onClick={() => setError('')}><X className="w-3.5 h-3.5" /></button>
-            </div>
-          )}
-
-          {/* Quick prompts — only show when input is empty */}
-          {!input && (
-            <div className="flex gap-2 mb-2 overflow-x-auto no-scrollbar">
-              {QUICK.map((q, i) => (
-                <button
-                  key={i}
-                  onClick={() => send(q.cmd)}
-                  className="shrink-0 px-3 py-1.5 bg-stone border border-dawn rounded-lg text-xs font-bold text-muted hover:text-ink hover:border-ink/20 transition-all"
-                >
-                  {q.label}
+                <button onClick={renderOpsStudio} className="w-full flex items-center justify-center gap-2 px-4 py-3 bg-citrus text-ink rounded-xl text-[10px] font-black uppercase tracking-widest">
+                  <Wand2 className="w-3.5 h-3.5" />
+                  Generate Visual
                 </button>
-              ))}
-            </div>
-          )}
+              </div>
+            )}
+          </div>
+        )}
+      </aside>
 
-          {/* Text input */}
-          <div className={`flex items-center gap-2 bg-stone/50 border rounded-2xl px-4 py-2.5 transition-all ${inputFocused ? 'border-citrus bg-white shadow-sm shadow-citrus/5' : 'border-dawn'}`}>
-            <input
-              ref={inputRef}
-              value={input}
-              onChange={e => setInput(e.target.value)}
-              onKeyDown={e => e.key === 'Enter' && !e.shiftKey && send()}
-              onFocus={() => setInputFocused(true)}
-              onBlur={() => setInputFocused(false)}
-              placeholder="Ask anything about tasks, risks, handovers…"
-              className="flex-1 bg-transparent text-sm font-medium focus:outline-none placeholder:text-muted/40"
-            />
+      <div className="min-w-0 flex-1 grid grid-rows-[1fr,auto] gap-4">
+        <div className="bg-white rounded-[28px] border border-dawn shadow-lg overflow-hidden flex flex-col min-h-0">
+          <div className="flex items-center justify-between px-5 py-4 border-b border-dawn bg-stone/30">
+            <div className="flex items-center gap-3">
+              <div className="w-10 h-10 rounded-xl bg-ink text-white flex items-center justify-center">
+                <Bot className="w-4.5 h-4.5" />
+              </div>
+              <div>
+                <p className="text-sm font-black text-ink">Copilot Chat</p>
+                <p className="text-[10px] font-bold uppercase tracking-[0.2em] text-muted">Local-safe responses with API fallback</p>
+              </div>
+            </div>
             <button
-              onClick={() => send()}
-              disabled={loading || !input.trim()}
-              className="w-8 h-8 bg-ink text-white rounded-xl flex items-center justify-center hover:bg-slate-800 active:scale-95 transition-all disabled:opacity-40 shrink-0"
+              onClick={() => {
+                setMessages([{ role: 'assistant', content: 'Chat cleared. I am ready for the next operational question.', timestamp: Date.now() }]);
+                setError('');
+              }}
+              className="w-9 h-9 rounded-xl border border-dawn flex items-center justify-center text-muted hover:text-red-500 hover:bg-red-50"
             >
-              <Send className="w-3.5 h-3.5" />
+              <Trash2 className="w-4 h-4" />
             </button>
           </div>
-          <p className="text-[9px] text-muted/30 mt-1.5 text-center">Enter to send · /clear to reset · /render html to visualize</p>
-        </div>
-      </div>
 
-      {/* ── Studio (collapsible) ── */}
-      {showStudio && (
-        <div className="bg-white rounded-[24px] border border-dawn shadow-lg overflow-hidden" style={{ height: '380px' }}>
-          <div className="flex items-center justify-between px-4 py-2.5 bg-slate-900 border-b border-slate-800">
-            <div className="flex items-center gap-2">
-              <Code className="w-4 h-4 text-white/50" />
-              <span className="text-[10px] font-black uppercase tracking-widest text-white/50">HTML Studio</span>
+          {error && (
+            <div className="mx-5 mt-4 px-4 py-3 bg-red-50 border border-red-100 rounded-2xl text-xs font-bold text-red-600 flex items-center gap-2">
+              <AlertCircle className="w-4 h-4 shrink-0" />
+              <span className="flex-1">{error}</span>
             </div>
-            <div className="flex items-center gap-1">
-              <button onClick={() => { if (iframeRef.current) { const d = iframeRef.current.contentDocument; if (d) { d.open(); d.write(previewCode); d.close(); } } }} className="p-1.5 hover:bg-white/10 rounded-lg text-white/40 hover:text-green-400 transition-all" title="Run"><Play className="w-3.5 h-3.5" /></button>
-              <button onClick={saveStudio} className="p-1.5 hover:bg-white/10 rounded-lg transition-all" title="Save">{studioSaved ? <CheckCircle2 className="w-3.5 h-3.5 text-green-400" /> : <Save className="w-3.5 h-3.5 text-white/40 hover:text-blue-400" />}</button>
-              <button onClick={downloadStudio} className="p-1.5 hover:bg-white/10 rounded-lg text-white/40 hover:text-citrus transition-all" title="Download"><Download className="w-3.5 h-3.5" /></button>
-              <button onClick={() => setShowStudio(false)} className="p-1.5 hover:bg-white/10 rounded-lg text-white/40 hover:text-white transition-all ml-1"><ChevronDown className="w-3.5 h-3.5" /></button>
+          )}
+
+          <div ref={scrollerRef} className="flex-1 overflow-y-auto px-5 py-5 space-y-4 custom-scrollbar">
+            {messages.map((message, index) => (
+              <div key={`${message.timestamp}-${index}`} className={`flex gap-3 ${message.role === 'user' ? 'flex-row-reverse' : ''}`}>
+                <div className={`w-9 h-9 rounded-xl flex items-center justify-center shrink-0 ${message.role === 'user' ? 'bg-stone border border-dawn' : 'bg-citrus text-white'}`}>
+                  {message.role === 'user' ? <User className="w-4 h-4 text-muted" /> : <Sparkles className="w-4 h-4" />}
+                </div>
+                <div className={`max-w-[78%] ${message.role === 'user' ? 'items-end' : 'items-start'} flex flex-col gap-1`}>
+                  <div className={`px-4 py-3 rounded-2xl shadow-sm ${message.role === 'user' ? 'bg-ink text-white rounded-tr-sm' : 'bg-stone/60 border border-dawn rounded-tl-sm'}`}>
+                    {message.role === 'assistant' ? <Md content={message.content} /> : <p className="text-sm leading-relaxed">{message.content}</p>}
+                  </div>
+                  <div className={`flex items-center gap-2 ${message.role === 'user' ? 'flex-row-reverse' : ''}`}>
+                    <span className="text-[9px] font-bold text-muted/40">
+                      {new Date(message.timestamp).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })}
+                    </span>
+                    <button onClick={() => copyMessage(message.content, index)} className="text-muted hover:text-ink">
+                      {copiedId === index ? <Check className="w-3 h-3 text-green-500" /> : <Copy className="w-3 h-3" />}
+                    </button>
+                  </div>
+                </div>
+              </div>
+            ))}
+
+            {loading && (
+              <div className="flex gap-3">
+                <div className="w-9 h-9 rounded-xl bg-citrus text-white flex items-center justify-center">
+                  <Sparkles className="w-4 h-4 animate-pulse" />
+                </div>
+                <div className="px-4 py-3 bg-stone/60 border border-dawn rounded-2xl rounded-tl-sm text-sm font-bold text-muted">
+                  Working through the workspace context...
+                </div>
+              </div>
+            )}
+          </div>
+
+          <div className="px-5 py-4 border-t border-dawn bg-white">
+            <div className="flex items-center gap-3 bg-stone/50 border border-dawn rounded-2xl px-4 py-3">
+              <input
+                value={input}
+                onChange={event => setInput(event.target.value)}
+                onKeyDown={event => {
+                  if (event.key === 'Enter' && !event.shiftKey) {
+                    event.preventDefault();
+                    send();
+                  }
+                }}
+                placeholder="Ask about task flow, handovers, blockers, team separation, or the next shift..."
+                className="flex-1 bg-transparent text-sm font-medium focus:outline-none placeholder:text-muted/40"
+              />
+              <button
+                onClick={() => send()}
+                disabled={loading || !input.trim()}
+                className="w-10 h-10 rounded-xl bg-ink text-white flex items-center justify-center disabled:opacity-40"
+              >
+                <Send className="w-4 h-4" />
+              </button>
             </div>
           </div>
-          <div className="flex h-[calc(100%-42px)]">
-            <div className="w-1/2 bg-slate-900 border-r border-slate-800 flex flex-col p-3">
+        </div>
+
+        {showStudio && isWidgetEnabled('aiStudio') && (
+          <div className="bg-white rounded-[24px] border border-dawn shadow-lg overflow-hidden h-[320px]">
+            <div className="flex items-center justify-between px-4 py-3 bg-slate-900 border-b border-slate-800">
+              <div className="flex items-center gap-2 text-white/70">
+                <Code className="w-4 h-4" />
+                <span className="text-[10px] font-black uppercase tracking-[0.2em]">AI Studio</span>
+              </div>
+              <div className="flex items-center gap-1">
+                <button onClick={() => { if (iframeRef.current) iframeRef.current.srcdoc = previewCode; }} className="p-2 text-white/50 hover:text-green-400"><Play className="w-3.5 h-3.5" /></button>
+                <button onClick={saveStudio} className="p-2 text-white/50 hover:text-blue-400">{studioSaved ? <CheckCircle2 className="w-3.5 h-3.5 text-green-400" /> : <Save className="w-3.5 h-3.5" />}</button>
+                <button onClick={downloadStudio} className="p-2 text-white/50 hover:text-citrus"><Download className="w-3.5 h-3.5" /></button>
+              </div>
+            </div>
+            <div className="grid grid-cols-2 h-[calc(100%-49px)]">
               <textarea
                 value={previewCode}
-                onChange={e => setPreviewCode(e.target.value)}
-                className="flex-1 w-full bg-transparent text-green-400 font-mono text-xs focus:outline-none resize-none custom-scrollbar leading-relaxed"
+                onChange={event => setPreviewCode(event.target.value)}
+                className="w-full h-full bg-slate-900 text-green-400 font-mono text-xs p-4 resize-none focus:outline-none custom-scrollbar"
                 spellCheck={false}
               />
-            </div>
-            <div className="w-1/2 bg-white relative">
-              <span className="absolute top-2 right-3 text-[9px] font-bold text-muted/30 uppercase">Preview</span>
-              <iframe ref={iframeRef} title="Preview" className="w-full h-full border-none" srcDoc={previewCode} />
+              <iframe ref={iframeRef} title="AI Studio Preview" className="w-full h-full border-none bg-white" srcDoc={previewCode} />
             </div>
           </div>
-        </div>
-      )}
+        )}
+      </div>
     </div>
   );
 }

@@ -29,7 +29,7 @@ const PRIORITY_META: Record<string, { label: string; color: string; border: stri
 const STATUS_FLOW: Status[] = [Status.BACKLOG, Status.IN_PROGRESS, Status.WAITING, Status.BLOCKED, Status.DONE];
 
 export default function TaskBoard({ tasks, initialFilter = '', initialStatus = 'All' }: TaskBoardProps) {
-  const { user, addTask, updateTask, deleteTasks } = useLocalData();
+  const { user, currentTeam, addTask, updateTask, deleteTasks, canUseFeature, isWidgetEnabled } = useLocalData();
   const [filter, setFilter] = useState(initialFilter);
   const [statusFilter, setStatusFilter] = useState<string>(initialStatus);
   const [isModalOpen, setIsModalOpen] = useState(false);
@@ -40,6 +40,9 @@ export default function TaskBoard({ tasks, initialFilter = '', initialStatus = '
   const [sortField, setSortField] = useState<keyof Task | 'title'>('createdAt');
   const [sortOrder, setSortOrder] = useState<'asc' | 'desc'>('desc');
   const [isProcessing, setIsProcessing] = useState(false);
+  const [teamFilter, setTeamFilter] = useState<'All' | string>('All');
+  const [countryFilter, setCountryFilter] = useState<'All' | string>('All');
+  const [shiftFilter, setShiftFilter] = useState<'All' | string>('All');
 
   React.useEffect(() => {
     setFilter(initialFilter);
@@ -57,6 +60,9 @@ export default function TaskBoard({ tasks, initialFilter = '', initialStatus = '
 
   const filteredTasks = tasks.filter(t => 
     (statusFilter === 'All' || t.status === statusFilter) &&
+    (teamFilter === 'All' || t.team === teamFilter) &&
+    (countryFilter === 'All' || t.country === countryFilter) &&
+    (shiftFilter === 'All' || t.shift === shiftFilter) &&
     (filter.toLowerCase() === 'risk'
       ? (t.priority === Priority.HIGH || t.status === Status.BLOCKED) && t.status !== Status.DONE
       : filter.toLowerCase() === 'carry'
@@ -67,6 +73,9 @@ export default function TaskBoard({ tasks, initialFilter = '', initialStatus = '
      (t.country && t.country.toLowerCase().includes(filter.toLowerCase())) ||
      (t.team && t.team.toLowerCase().includes(filter.toLowerCase())))
   );
+  const teamOptions = ['All', ...new Set(tasks.map(task => task.team).filter(Boolean))];
+  const countryOptions = ['All', ...new Set(tasks.map(task => task.country).filter(Boolean))];
+  const shiftOptions = ['All', ...new Set(tasks.map(task => task.shift).filter(Boolean))];
 
   const sortedTasks = [...filteredTasks].sort((a, b) => {
     let valA: any = a[sortField as keyof Task];
@@ -162,6 +171,7 @@ export default function TaskBoard({ tasks, initialFilter = '', initialStatus = '
         <div className="flex items-center gap-4 w-full lg:w-auto">
           <button
             onClick={() => { setEditingTask(null); setIsModalOpen(true); }}
+            disabled={!canUseFeature('task.create')}
             className="flex items-center gap-2 px-5 py-2.5 bg-ink text-white rounded-xl font-black text-xs uppercase tracking-widest shadow-lg shadow-ink/10 hover:bg-ink/90 transition-all shrink-0"
           >
             <Plus className="w-3.5 h-3.5" />
@@ -191,6 +201,10 @@ export default function TaskBoard({ tasks, initialFilter = '', initialStatus = '
         </div>
 
         <div className="flex items-center gap-2.5 w-full lg:w-auto">
+          <div className="hidden xl:flex items-center gap-2">
+            <span className="px-3 py-2 bg-citrus/10 text-citrus rounded-xl text-[10px] font-black uppercase tracking-widest">{currentTeam}</span>
+            <span className="px-3 py-2 bg-white border border-dawn rounded-xl text-[10px] font-black uppercase tracking-widest text-muted">{tasks.length} visible</span>
+          </div>
           <div className="relative flex-1 lg:flex-initial">
             <Search className="absolute left-3 top-1/2 -translate-y-1/2 w-3.5 h-3.5 text-muted" />
             <input
@@ -218,6 +232,18 @@ export default function TaskBoard({ tasks, initialFilter = '', initialStatus = '
             </button>
           </div>
         </div>
+      </div>
+
+      <div className="grid grid-cols-1 xl:grid-cols-3 gap-3">
+        <select value={teamFilter} onChange={e => setTeamFilter(e.target.value)} className="bg-white border border-dawn rounded-xl px-4 py-3 text-[11px] font-black uppercase tracking-widest text-muted focus:border-citrus outline-none">
+          {teamOptions.map(option => <option key={option} value={option}>{option === 'All' ? 'All Teams' : option}</option>)}
+        </select>
+        <select value={countryFilter} onChange={e => setCountryFilter(e.target.value)} className="bg-white border border-dawn rounded-xl px-4 py-3 text-[11px] font-black uppercase tracking-widest text-muted focus:border-citrus outline-none">
+          {countryOptions.map(option => <option key={option} value={option}>{option === 'All' ? 'All Countries' : option}</option>)}
+        </select>
+        <select value={shiftFilter} onChange={e => setShiftFilter(e.target.value)} className="bg-white border border-dawn rounded-xl px-4 py-3 text-[11px] font-black uppercase tracking-widest text-muted focus:border-citrus outline-none">
+          {shiftOptions.map(option => <option key={option} value={option}>{option === 'All' ? 'All Shifts' : option}</option>)}
+        </select>
       </div>
 
       {/* ── Summary bar ── */}
@@ -257,6 +283,7 @@ export default function TaskBoard({ tasks, initialFilter = '', initialStatus = '
                   </div>
                   <button
                     onClick={() => { setEditingTask(null); setIsModalOpen(true); }}
+                    disabled={!canUseFeature('task.create')}
                     className="p-1 text-muted hover:text-ink transition-colors rounded-lg hover:bg-stone"
                   >
                     <Plus className="w-3 h-3" />
@@ -308,6 +335,7 @@ export default function TaskBoard({ tasks, initialFilter = '', initialStatus = '
                               )}
                               <button
                                 onClick={(e) => { e.stopPropagation(); setEditingTask(task); setIsModalOpen(true); }}
+                                disabled={!canUseFeature('task.edit')}
                                 className="p-1 text-muted/40 hover:text-ink rounded transition-colors"
                               >
                                 <MoreHorizontal className="w-3 h-3" />
@@ -484,6 +512,7 @@ export default function TaskBoard({ tasks, initialFilter = '', initialStatus = '
                         <td className="px-5 py-4" onClick={e => e.stopPropagation()}>
                           <button
                             onClick={() => toggleStatus(task.id, task.status)}
+                            disabled={!canUseFeature('task.edit')}
                             className="flex items-center gap-2 px-2 py-1 rounded-lg hover:bg-stone/60 transition-colors"
                           >
                             <span className={`w-2 h-2 rounded-full ${sMeta?.dot || 'bg-dawn'}`} />
@@ -499,6 +528,7 @@ export default function TaskBoard({ tasks, initialFilter = '', initialStatus = '
                         <td className="px-5 py-4 text-right" onClick={e => e.stopPropagation()}>
                           <button
                             onClick={() => { setEditingTask(task); setIsModalOpen(true); }}
+                            disabled={!canUseFeature('task.edit')}
                             className="p-1.5 rounded-lg hover:bg-stone/60 transition-colors text-muted opacity-0 group-hover:opacity-100"
                           >
                             <MoreHorizontal className="w-4 h-4" />
@@ -575,7 +605,7 @@ export default function TaskBoard({ tasks, initialFilter = '', initialStatus = '
 
       {/* ── Bulk Actions Bar ── */}
       <AnimatePresence>
-        {selectedIds.length > 0 && (
+        {selectedIds.length > 0 && canUseFeature('task.bulk') && isWidgetEnabled('taskBulkActions') && (
           <motion.div
             initial={{ y: 80, opacity: 0 }}
             animate={{ y: 0, opacity: 1 }}

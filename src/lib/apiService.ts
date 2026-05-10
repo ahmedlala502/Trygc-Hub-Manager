@@ -63,6 +63,11 @@ export interface AIResult {
   latencyMs?: number;
 }
 
+export interface ChatMessage {
+  role: 'user' | 'assistant';
+  content: string;
+}
+
 // ── provider calls ────────────────────────────────────────────────────────────
 
 async function callGemini(apiKey: string, model: string, prompt: string): Promise<string> {
@@ -151,52 +156,60 @@ async function callProvider(prompt: string): Promise<AIResult> {
     aiEndpoint?: string;
     providerModels?: Record<string, string>;
     providerEndpoints?: Record<string, string>;
+    fallbackProviders?: string[];
   } | null;
 
   const provider: string = settings?.aiProvider || 'gemini';
   const providerModels: Record<string, string> = settings?.providerModels || {};
   const providerEndpoints: Record<string, string> = settings?.providerEndpoints || {};
+  const fallbackProviders: string[] = settings?.fallbackProviders || ['local', 'openai', 'anthropic', 'groq'];
   const model: string = settings?.aiModel || providerModels[provider] || '';
   const endpoint: string = settings?.aiEndpoint || providerEndpoints[provider] || '';
-  const apiKey = getApiKey(provider);
+  const attemptOrder = [provider, ...fallbackProviders.filter(item => item && item !== provider)];
+  let lastError = '';
 
-  const t0 = Date.now();
+  for (const candidate of attemptOrder) {
+    const candidateModel = candidate === provider ? model : providerModels[candidate] || '';
+    const candidateEndpoint = candidate === provider ? endpoint : providerEndpoints[candidate] || '';
+    const candidateKey = getApiKey(candidate);
+    const t0 = Date.now();
 
-  // No key → skip directly to mock (never throw)
-  if (!apiKey && provider !== 'local') {
-    return mockFallback(prompt, 'No API key configured. Add one in Settings → AI & API.');
-  }
-
-  try {
-    let text = '';
-
-    if (provider === 'gemini') {
-      text = await callGemini(apiKey, model, prompt);
-    } else if (provider === 'openai') {
-      text = await callOpenAICompat(apiKey, model || 'gpt-4o', endpoint || 'https://api.openai.com/v1/chat/completions', prompt, 'OpenAI');
-    } else if (provider === 'anthropic') {
-      text = await callAnthropic(apiKey, model, endpoint, prompt);
-    } else if (provider === 'groq') {
-      text = await callOpenAICompat(apiKey, model || 'llama-3.3-70b-versatile', endpoint || 'https://api.groq.com/openai/v1/chat/completions', prompt, 'Groq');
-    } else if (provider === 'alibaba') {
-      text = await callOpenAICompat(apiKey, model || 'qwen-plus', endpoint || 'https://dashscope.aliyuncs.com/compatible-mode/v1/chat/completions', prompt, 'Alibaba');
-    } else if (provider === 'local') {
-      text = await callOllama(model, endpoint, prompt);
-    } else if (endpoint) {
-      // Generic custom OpenAI-compatible provider
-      const chatUrl = endpoint.replace(/\/?$/, '/chat/completions');
-      text = await callOpenAICompat(apiKey, model || 'default', chatUrl, prompt, provider);
-    } else {
-      return mockFallback(prompt, `Unknown provider "${provider}". Configure an endpoint in Settings → AI & API.`);
+    if (!candidateKey && candidate !== 'local') {
+      lastError = `No API key configured for ${candidate}.`;
+      continue;
     }
 
-    return { text, provider: provider as AIProviderName, latencyMs: Date.now() - t0 };
-  } catch (err: unknown) {
-    // All errors fall gracefully through to context-aware mock
-    const errMsg = err instanceof Error ? err.message : String(err);
-    console.warn(`[apiService] ${provider} failed (${errMsg}) — using mock fallback`);
-    return mockFallback(prompt, errMsg);
+    try {
+      let text = '';
+
+      if (candidate === 'gemini') {
+        text = await callGemini(candidateKey, candidateModel, prompt);
+      } else if (candidate === 'openai') {
+        text = await callOpenAICompat(candidateKey, candidateModel || 'gpt-4o', candidateEndpoint || 'https://api.openai.com/v1/chat/completions', prompt, 'OpenAI');
+      } else if (candidate === 'anthropic') {
+        text = await callAnthropic(candidateKey, candidateModel, candidateEndpoint, prompt);
+      } else if (candidate === 'groq') {
+        text = await callOpenAICompat(candidateKey, candidateModel || 'llama-3.3-70b-versatile', candidateEndpoint || 'https://api.groq.com/openai/v1/chat/completions', prompt, 'Groq');
+      } else if (candidate === 'alibaba') {
+        text = await callOpenAICompat(candidateKey, candidateModel || 'qwen-plus', candidateEndpoint || 'https://dashscope.aliyuncs.com/compatible-mode/v1/chat/completions', prompt, 'Alibaba');
+      } else if (candidate === 'local') {
+        text = await callOllama(candidateModel, candidateEndpoint, prompt);
+      } else if (candidateEndpoint) {
+        const chatUrl = candidateEndpoint.replace(/\/?$/, '/chat/completions');
+        text = await callOpenAICompat(candidateKey, candidateModel || 'default', chatUrl, prompt, candidate);
+      } else {
+        lastError = `Unknown provider "${candidate}".`;
+        continue;
+      }
+
+      return { text, provider: candidate as AIProviderName, latencyMs: Date.now() - t0 };
+    } catch (err: unknown) {
+      lastError = err instanceof Error ? err.message : String(err);
+      console.warn(`[apiService] ${candidate} failed (${lastError}) — trying next fallback`);
+    }
   }
+
+  return mockFallback(prompt, lastError || 'No AI provider could respond.');
 }
 
 // ── smart mock fallback ───────────────────────────────────────────────────────
@@ -258,5 +271,24 @@ export async function generateHandoverSummary({ tasks, watchouts }: {
 }): Promise<AIResult> {
   const taskList = tasks.map(t => `- [${t.priority}/${t.status}] ${t.title}`).join('\n');
   const prompt = `Generate a concise shift handover watchout summary for the following tasks:\n${taskList}\n${watchouts ? `Existing notes: ${watchouts}\n` : ''}Write 2-3 sentences covering key risks, blockers, and actions needed. Be direct and operational.`;
+  return callProvider(prompt);
+}
+
+export async function chatWithWorkspaceAI({ history, tasksSummary, handoverSummary }: {
+  history: ChatMessage[];
+  tasksSummary: string;
+  handoverSummary: string;
+}): Promise<AIResult> {
+  const transcript = history.map(message => `${message.role === 'assistant' ? 'Assistant' : 'User'}: ${message.content}`).join('\n');
+  const prompt = [
+    'You are the AI operations copilot for TryGC Hub Manager.',
+    `Task context: ${tasksSummary}`,
+    `Handover context: ${handoverSummary}`,
+    'Give direct, practical, operational answers.',
+    '',
+    transcript,
+    '',
+    'Reply to the latest user message.',
+  ].join('\n');
   return callProvider(prompt);
 }

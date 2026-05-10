@@ -11,6 +11,7 @@ import {
   Download,
   Globe,
   KeyRound,
+  LayoutGrid,
   Loader2,
   Palette,
   Plus,
@@ -33,6 +34,7 @@ import {
 import { useLocalData } from '../LocalDataContext';
 import { CustomProvider, WorkspaceSettings } from '../../lib/localStore';
 import { Status } from '../../types';
+import { APP_PAGES, DEFAULT_ROLE_PERMISSIONS, FEATURE_KEYS, WIDGET_KEYS, resolveRoleName } from '../../lib/accessControl';
 
 interface SettingsProps {
   activeTab?: string;
@@ -139,6 +141,7 @@ export default function Settings({ activeTab: controlledTab, setActiveTab: setCo
   const [showAddProvider, setShowAddProvider] = useState(false);
   const [newProvider, setNewProvider] = useState<Partial<CustomProvider>>({ name: '', baseUrl: '', defaultModel: '' });
   const [copiedMcp, setCopiedMcp] = useState(false);
+  const [selectedRole, setSelectedRole] = useState('Super Admin');
 
   // Keep ref up to date
   useEffect(() => { configRef.current = config; }, [config]);
@@ -371,6 +374,52 @@ export default function Settings({ activeTab: controlledTab, setActiveTab: setCo
     };
   }, [tasks, handovers, user.name, user.email]);
 
+  const getUserMetrics = (name: string) => {
+    const ownedTasks = tasks.filter(task => task.owner === name);
+    const completed = ownedTasks.filter(task => task.status === Status.DONE).length;
+    const blocked = ownedTasks.filter(task => task.status === Status.BLOCKED).length;
+    const inProgress = ownedTasks.filter(task => task.status === Status.IN_PROGRESS || task.status === Status.WAITING).length;
+    const carry = ownedTasks.filter(task => task.carry && task.status !== Status.DONE).length;
+    const handoversOut = handovers.filter(handover => handover.outgoing === name).length;
+    const acknowledgedHandovers = handovers.filter(handover => handover.outgoing === name && handover.status === 'Acknowledged').length;
+    const onTimeRate = handoversOut > 0 ? Math.round((acknowledgedHandovers / handoversOut) * 100) : completed > 0 ? Math.round((completed / Math.max(ownedTasks.length, 1)) * 100) : 100;
+    const productivity = Math.round(Math.min(100, completed * 12 + handoversOut * 6 + Math.max(0, 20 - blocked * 8)));
+    return { total: ownedTasks.length, completed, blocked, inProgress, carry, handoversOut, onTimeRate, productivity };
+  };
+
+  const activeProfileMetrics = getUserMetrics(user.name);
+
+  const roleProfiles = config.rolePermissions || DEFAULT_ROLE_PERMISSIONS;
+  const editableRoleProfile = roleProfiles[selectedRole] || DEFAULT_ROLE_PERMISSIONS[resolveRoleName(selectedRole)];
+
+  const updateRoleProfile = (role: string, patch: Partial<(typeof editableRoleProfile)>) => {
+    const current = roleProfiles[role] || DEFAULT_ROLE_PERMISSIONS[resolveRoleName(role)];
+    const next = {
+      ...configRef.current,
+      rolePermissions: {
+        ...roleProfiles,
+        [role]: {
+          ...current,
+          ...patch,
+        },
+      },
+    };
+    setConfig(next);
+    saveConfig(next);
+  };
+
+  const updateWidgetConfig = (key: string) => {
+    const next = {
+      ...configRef.current,
+      widgetConfig: {
+        ...(configRef.current.widgetConfig || {}),
+        [key]: !configRef.current.widgetConfig?.[key as keyof typeof config.widgetConfig],
+      },
+    };
+    setConfig(next);
+    saveConfig(next);
+  };
+
   return (
     <div className="max-w-6xl mx-auto space-y-10 pb-32">
       <div className="flex items-center justify-between px-2">
@@ -421,6 +470,13 @@ export default function Settings({ activeTab: controlledTab, setActiveTab: setCo
           {activeTab === 'profile' && (
             <Panel title="My Profile" desc="Your identity across tasks, handovers, and reports.">
               <div className="space-y-8">
+                <div className="grid grid-cols-4 gap-4">
+                  <StatBox label="Productivity" value={`${activeProfileMetrics.productivity}%`} sub="live profile score" color="text-citrus" />
+                  <StatBox label="Tasks Owned" value={activeProfileMetrics.total} sub={`${activeProfileMetrics.inProgress} active now`} color="text-blue-600" />
+                  <StatBox label="Carry-over" value={activeProfileMetrics.carry} sub="still open" color="text-amber-600" />
+                  <StatBox label="Blocked" value={activeProfileMetrics.blocked} sub="needs attention" color="text-red-500" />
+                </div>
+
                 {/* Profile form */}
                 <div className="grid grid-cols-2 gap-6">
                   <Field label="Full Name"><input className={inputClass} value={profile.name} onChange={e => setProfile({ ...profile, name: e.target.value })} /></Field>
@@ -461,8 +517,6 @@ export default function Settings({ activeTab: controlledTab, setActiveTab: setCo
                     <div className="grid grid-cols-2 gap-3">
                       {members.map(m => {
                         const isCurrentUser = m.name === user.name;
-                        const mTasks = tasks.filter(t => t.owner === m.name);
-                        const mDone = mTasks.filter(t => t.status === Status.DONE).length;
                         return (
                           <button
                             key={m.id}
@@ -476,7 +530,7 @@ export default function Settings({ activeTab: controlledTab, setActiveTab: setCo
                             <div className="min-w-0">
                               <span className="block text-sm font-black text-ink truncate">{m.name}</span>
                               <span className="block text-[9px] font-bold text-muted uppercase tracking-widest truncate">{m.role || m.team}</span>
-                              <span className="block text-[9px] font-bold text-muted/60">{mDone} done · {m.office}</span>
+                              <span className="block text-[9px] font-bold text-muted/60">{getUserMetrics(m.name).productivity}% productivity · {m.office}</span>
                             </div>
                             {isCurrentUser && <span className="ml-auto text-[8px] font-black text-citrus uppercase tracking-widest">Active</span>}
                           </button>
@@ -572,6 +626,17 @@ export default function Settings({ activeTab: controlledTab, setActiveTab: setCo
                         onChange={e => setConfig({ ...configRef.current, aiEndpoint: e.target.value })}
                         onBlur={() => saveConfig()}
                         placeholder="https://... (optional)"
+                      />
+                    </Field>
+                  </div>
+                  <div className="mt-4">
+                    <Field label="Fallback Order">
+                      <input
+                        className={inputClass}
+                        value={(config.fallbackProviders || []).join(', ')}
+                        onChange={e => setConfig({ ...configRef.current, fallbackProviders: e.target.value.split(',').map(item => item.trim()).filter(Boolean) })}
+                        onBlur={() => saveConfig()}
+                        placeholder="local, openai, anthropic, groq"
                       />
                     </Field>
                   </div>
@@ -931,8 +996,7 @@ export default function Settings({ activeTab: controlledTab, setActiveTab: setCo
                     .map(m => {
                       const isCurrentUser = m.name === user.name;
                       const isEditing = editingMemberId === m.id;
-                      const mTasks = tasks.filter(t => t.owner === m.name);
-                      const mDone = mTasks.filter(t => t.status === 'Done').length;
+                      const metrics = getUserMetrics(m.name);
 
                       return (
                         <div
@@ -966,7 +1030,9 @@ export default function Settings({ activeTab: controlledTab, setActiveTab: setCo
                             </div>
 
                             <div className="flex items-center gap-1.5 text-[9px] font-bold text-muted shrink-0 mr-2">
-                              <span className="px-2 py-1 bg-stone rounded-lg">{mDone} done</span>
+                              <span className="px-2 py-1 bg-stone rounded-lg">{metrics.completed} done</span>
+                              <span className="px-2 py-1 bg-stone rounded-lg">{metrics.productivity}% productivity</span>
+                              <span className="px-2 py-1 bg-stone rounded-lg">{metrics.onTimeRate}% on-time</span>
                             </div>
 
                             <div className="flex items-center gap-1 shrink-0">
@@ -1089,6 +1155,18 @@ export default function Settings({ activeTab: controlledTab, setActiveTab: setCo
                   <ToggleCard key={key} title={labelize(key)} desc={flagDescription(key)} active={!!active} onClick={() => toggleFlag(key)} />
                 ))}
               </div>
+              <div className="space-y-4 pt-6 border-t border-dawn">
+                <SectionHeading icon={<LayoutGrid className="w-4 h-4" />} label="Dashboard Widgets" />
+                {WIDGET_KEYS.map(key => (
+                  <ToggleCard
+                    key={key}
+                    title={labelize(key)}
+                    desc="Enable or disable this widget across the workspace."
+                    active={config.widgetConfig?.[key] !== false}
+                    onClick={() => updateWidgetConfig(key)}
+                  />
+                ))}
+              </div>
             </Panel>
           )}
 
@@ -1106,6 +1184,74 @@ export default function Settings({ activeTab: controlledTab, setActiveTab: setCo
                     <button onClick={() => { const next = { ...configRef.current, teams: configRef.current.teams.filter((_, idx) => idx !== i) }; setConfig(next); saveConfig(next); }} className="p-2 text-muted hover:text-red-500 opacity-0 group-hover:opacity-100 transition-all"><X className="w-4 h-4" /></button>
                   </div>
                 ))}
+              </div>
+              <div className="pt-8 border-t border-dawn space-y-6">
+                <div className="flex items-center justify-between">
+                  <div>
+                    <h4 className="text-lg font-black text-ink">Role Access Matrix</h4>
+                    <p className="text-sm font-medium text-muted">Assign pages, features, and team visibility per role.</p>
+                  </div>
+                  <select value={selectedRole} onChange={e => setSelectedRole(e.target.value)} className={inputClass}>
+                    {Object.keys(roleProfiles).map(role => <option key={role} value={role}>{role}</option>)}
+                  </select>
+                </div>
+
+                <div className="grid grid-cols-3 gap-6">
+                  <div className="space-y-3">
+                    <span className="text-[10px] font-black uppercase tracking-[0.2em] text-muted">Pages</span>
+                    {APP_PAGES.map(page => (
+                      <label key={page} className="flex items-center justify-between p-3 bg-stone/30 border border-dawn rounded-xl">
+                        <span className="text-xs font-bold text-ink">{labelize(page)}</span>
+                        <input
+                          type="checkbox"
+                          checked={editableRoleProfile.pages.includes(page)}
+                          onChange={e => updateRoleProfile(selectedRole, { pages: e.target.checked ? [...editableRoleProfile.pages, page] : editableRoleProfile.pages.filter(item => item !== page) })}
+                          className="w-4 h-4 accent-citrus"
+                        />
+                      </label>
+                    ))}
+                  </div>
+
+                  <div className="space-y-3">
+                    <span className="text-[10px] font-black uppercase tracking-[0.2em] text-muted">Features</span>
+                    {FEATURE_KEYS.map(feature => (
+                      <label key={feature} className="flex items-center justify-between p-3 bg-stone/30 border border-dawn rounded-xl">
+                        <span className="text-xs font-bold text-ink">{labelize(feature)}</span>
+                        <input
+                          type="checkbox"
+                          checked={editableRoleProfile.features.includes(feature)}
+                          onChange={e => updateRoleProfile(selectedRole, { features: e.target.checked ? [...editableRoleProfile.features, feature] : editableRoleProfile.features.filter(item => item !== feature) })}
+                          className="w-4 h-4 accent-citrus"
+                        />
+                      </label>
+                    ))}
+                  </div>
+
+                  <div className="space-y-3">
+                    <span className="text-[10px] font-black uppercase tracking-[0.2em] text-muted">Team Scope</span>
+                    <label className="flex items-center justify-between p-3 bg-stone/30 border border-dawn rounded-xl">
+                      <span className="text-xs font-bold text-ink">All Teams</span>
+                      <input
+                        type="checkbox"
+                        checked={editableRoleProfile.teams.includes('*')}
+                        onChange={e => updateRoleProfile(selectedRole, { teams: e.target.checked ? ['*'] : [] })}
+                        className="w-4 h-4 accent-citrus"
+                      />
+                    </label>
+                    {(config.teams || []).map(team => (
+                      <label key={team} className="flex items-center justify-between p-3 bg-stone/30 border border-dawn rounded-xl">
+                        <span className="text-xs font-bold text-ink">{team}</span>
+                        <input
+                          type="checkbox"
+                          checked={editableRoleProfile.teams.includes('*') || editableRoleProfile.teams.includes(team)}
+                          disabled={editableRoleProfile.teams.includes('*')}
+                          onChange={e => updateRoleProfile(selectedRole, { teams: e.target.checked ? [...editableRoleProfile.teams.filter(item => item !== '*'), team] : editableRoleProfile.teams.filter(item => item !== team && item !== '*') })}
+                          className="w-4 h-4 accent-citrus"
+                        />
+                      </label>
+                    ))}
+                  </div>
+                </div>
               </div>
             </Panel>
           )}
