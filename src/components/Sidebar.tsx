@@ -13,7 +13,7 @@ interface SidebarProps {
 }
 
 export default function Sidebar({ activeTab, setActiveTab, openSettingsTab, stats }: SidebarProps) {
-  const { user, logout, lock, isSuperAdmin, canAccessPage } = useLocalData();
+  const { user, logout, lock, isSuperAdmin, hasAdminAccess, canAccessPage } = useLocalData();
 
   const menuItems = [
     { section: 'Intelligence' },
@@ -99,13 +99,15 @@ export default function Sidebar({ activeTab, setActiveTab, openSettingsTab, stat
               <Settings className="w-4 h-4" />
               <span>Profile Settings</span>
             </button>
-            <button
-              onClick={() => openSettingsTab ? openSettingsTab('users') : setActiveTab('settings')}
-              className="w-full flex items-center gap-2 p-2 text-xs font-bold text-muted hover:text-ink hover:bg-white/60 transition-colors rounded-lg"
-            >
-              <Repeat className="w-4 h-4" />
-              <span>Switch User</span>
-            </button>
+            {hasAdminAccess && (
+              <button
+                onClick={() => openSettingsTab ? openSettingsTab('users') : setActiveTab('settings')}
+                className="w-full flex items-center gap-2 p-2 text-xs font-bold text-muted hover:text-ink hover:bg-white/60 transition-colors rounded-lg"
+              >
+                <Repeat className="w-4 h-4" />
+                <span>Switch User</span>
+              </button>
+            )}
             <button
               onClick={() => {
                 lock();

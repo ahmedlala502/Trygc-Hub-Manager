@@ -142,6 +142,11 @@ export default function Settings({ activeTab: controlledTab, setActiveTab: setCo
   const [newProvider, setNewProvider] = useState<Partial<CustomProvider>>({ name: '', baseUrl: '', defaultModel: '' });
   const [copiedMcp, setCopiedMcp] = useState(false);
   const [selectedRole, setSelectedRole] = useState('Super Admin');
+  const canManageWorkspace = isSuperAdmin || hasAdminAccess;
+  const visibleTabs = useMemo(
+    () => settingTabs.filter(tab => canManageWorkspace || tab.id === 'profile'),
+    [canManageWorkspace]
+  );
 
   // Keep ref up to date
   useEffect(() => { configRef.current = config; }, [config]);
@@ -157,6 +162,11 @@ export default function Settings({ activeTab: controlledTab, setActiveTab: setCo
   useEffect(() => {
     if (settings.mcpConfig) setMcpConfig(settings.mcpConfig);
   }, [settings.mcpConfig]);
+  useEffect(() => {
+    if (!canManageWorkspace && activeTab !== 'profile') {
+      setActiveTab('profile');
+    }
+  }, [activeTab, canManageWorkspace, setActiveTab]);
 
   // Unsaved changes detection
   const hasUnsaved = useMemo(() => {
@@ -452,7 +462,7 @@ export default function Settings({ activeTab: controlledTab, setActiveTab: setCo
 
       <div className="grid grid-cols-12 gap-8">
         <div className="col-span-3 space-y-2">
-          {settingTabs.map(tab => (
+          {visibleTabs.map(tab => (
             <button
               key={tab.id}
               onClick={() => setActiveTab(tab.id)}
@@ -508,7 +518,7 @@ export default function Settings({ activeTab: controlledTab, setActiveTab: setCo
                 </div>
 
                 {/* Switch account */}
-                {members.length > 0 && (
+                {canManageWorkspace && members.length > 0 && (
                   <div>
                     <div className="flex items-center gap-2 text-muted mb-4">
                       <UserCheck className="w-4 h-4" />
@@ -544,7 +554,7 @@ export default function Settings({ activeTab: controlledTab, setActiveTab: setCo
           )}
 
           {/* ── General ── */}
-          {activeTab === 'general' && (
+          {canManageWorkspace && activeTab === 'general' && (
             <Panel title="Regional Parameters" desc="Configure defaults for the local command center.">
               <div className="grid grid-cols-2 gap-8">
                 <Field label="Tool Name"><input className={inputClass} value={config.name || 'TryGC Hub Manager'} onChange={e => setConfig({ ...configRef.current, name: e.target.value })} /></Field>
@@ -560,7 +570,7 @@ export default function Settings({ activeTab: controlledTab, setActiveTab: setCo
           )}
 
           {/* ── Appearance ── */}
-          {activeTab === 'appearance' && (
+          {canManageWorkspace && activeTab === 'appearance' && (
             <Panel title="Appearance" desc="Preserve the current design while exposing the theme controls from the HTML build.">
               <div className="grid grid-cols-3 gap-5">
                 {[
@@ -589,7 +599,7 @@ export default function Settings({ activeTab: controlledTab, setActiveTab: setCo
           )}
 
           {/* ── AI & API ── */}
-          {activeTab === 'ai' && (
+          {canManageWorkspace && activeTab === 'ai' && (
             <Panel title="API & Integration Hub" desc="Configure AI providers, manage API keys locally, and connect MCP servers.">
               <div className="space-y-10">
 
@@ -787,7 +797,7 @@ export default function Settings({ activeTab: controlledTab, setActiveTab: setCo
           )}
 
           {/* ── Security / Auth ── */}
-          {activeTab === 'security' && (
+          {canManageWorkspace && activeTab === 'security' && (
             <Panel title="Authentication & Security" desc="Session and access control settings for this local workspace.">
               <div className="grid grid-cols-2 gap-5">
                 <Field label="Auth Mode">
@@ -838,7 +848,7 @@ export default function Settings({ activeTab: controlledTab, setActiveTab: setCo
           )}
 
           {/* ── User Management ── */}
-          {activeTab === 'users' && (
+          {canManageWorkspace && activeTab === 'users' && (
             <Panel title="User Management" desc="Create team members, assign roles, update profiles, and switch active users.">
               <div className="space-y-6">
 
@@ -1148,7 +1158,7 @@ export default function Settings({ activeTab: controlledTab, setActiveTab: setCo
           )}
 
           {/* ── Operations ── */}
-          {activeTab === 'operations' && (
+          {canManageWorkspace && activeTab === 'operations' && (
             <Panel title="Operational Logic" desc="Feature flags and thresholds from the original backend settings.">
               <div className="space-y-4">
                 {Object.entries(config.featureFlags || {}).map(([key, active]) => (
@@ -1171,7 +1181,7 @@ export default function Settings({ activeTab: controlledTab, setActiveTab: setCo
           )}
 
           {/* ── Teams ── */}
-          {activeTab === 'teams' && (
+          {canManageWorkspace && activeTab === 'teams' && (
             <Panel title="Organizational Grid" desc="Manage active teams permitted to register outcomes.">
               <div className="flex gap-2">
                 <input value={newTeam} onChange={e => setNewTeam(e.target.value)} onKeyDown={e => { if (e.key === 'Enter' && newTeam.trim()) { const next = { ...configRef.current, teams: [...(configRef.current.teams || []), newTeam.trim()] }; setConfig(next); saveConfig(next); setNewTeam(''); } }} placeholder="Enter new team name..." className="flex-1 bg-stone/50 border border-dawn rounded-xl px-4 py-3 font-bold text-sm focus:border-citrus outline-none" />
@@ -1257,7 +1267,7 @@ export default function Settings({ activeTab: controlledTab, setActiveTab: setCo
           )}
 
           {/* ── Data ── */}
-          {activeTab === 'data' && (
+          {canManageWorkspace && activeTab === 'data' && (
             <Panel title="Data Management & Audit" desc="Backup, reset, and review local configuration events.">
               <div className="grid grid-cols-3 gap-6">
                 <button onClick={handleExportData} className="flex flex-col items-center justify-center p-8 bg-white border border-dawn rounded-[32px] hover:border-citrus transition-all group">

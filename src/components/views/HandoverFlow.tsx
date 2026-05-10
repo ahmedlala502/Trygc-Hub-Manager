@@ -24,6 +24,9 @@ export default function HandoverFlow({ handovers, tasks, stats, aiInteractions }
   const [isAnalyzing, setIsAnalyzing] = useState(false);
   const [searchTerm, setSearchTerm] = useState('');
   const [editingHandoverId, setEditingHandoverId] = useState<string | null>(null);
+  const [reviewingHandoverId, setReviewingHandoverId] = useState<string | null>(null);
+  const [reviewComment, setReviewComment] = useState('');
+  const [reviewerFilter, setReviewerFilter] = useState<'all' | 'mine' | string>('all');
   const teamOptions = settings.teams?.length ? settings.teams : TEAMS;
 
   const [newHo, setNewHo] = useState<Partial<Handover>>({
@@ -109,6 +112,29 @@ export default function HandoverFlow({ handovers, tasks, stats, aiInteractions }
     await updateHandover(id, { status: 'Acknowledged', ackAt: new Date().toISOString() });
   };
 
+  const reviewHandover = async (handover: Handover, action: 'Reviewed' | 'Acknowledged') => {
+    const reviewedAt = new Date().toISOString();
+    const trimmedComment = reviewComment.trim();
+    const nextHistory = [
+      ...(handover.reviewHistory || []),
+      {
+        id: `review-${Date.now().toString(36)}`,
+        reviewer: user.name,
+        reviewedAt,
+        comment: trimmedComment,
+        action,
+      },
+    ];
+
+    await updateHandover(handover.id, {
+      reviewedBy: user.name,
+      reviewedAt,
+      reviewComment: trimmedComment,
+      reviewHistory: nextHistory,
+      ...(action === 'Acknowledged' ? { status: 'Acknowledged', ackAt: reviewedAt } : {}),
+    });
+  };
+
   const previewText = useMemo(() => {
     return `🔴 SHIFT HANDOVER: ${newHo.fromShift} → ${newHo.toShift}\n` +
       `🏢 HUB: ${newHo.fromOffice} → ${newHo.toOffice}\n` +
@@ -137,6 +163,11 @@ export default function HandoverFlow({ handovers, tasks, stats, aiInteractions }
     window.scrollTo({ top: 0, behavior: 'smooth' });
   };
 
+  const openReviewModal = (handover: Handover) => {
+    setReviewComment(handover.reviewComment || '');
+    setReviewingHandoverId(handover.id);
+  };
+
   const resetBuilder = () => {
     setEditingHandoverId(null);
     setNewHo({
@@ -153,6 +184,37 @@ export default function HandoverFlow({ handovers, tasks, stats, aiInteractions }
     });
     setStep(1);
   };
+
+  const reviewingHandover = reviewingHandoverId
+    ? handovers.find(handover => handover.id === reviewingHandoverId) || null
+    : null;
+
+  const reviewingTasks = reviewingHandover
+    ? tasks.filter(task => reviewingHandover.taskIds.includes(task.id))
+    : [];
+
+  const availableReviewers = useMemo(() => {
+    return Array.from(
+      new Set(
+        handovers
+          .flatMap(handover => handover.reviewHistory?.map(entry => entry.reviewer) || [])
+          .filter(Boolean)
+      )
+    ).sort((a, b) => a.localeCompare(b));
+  }, [handovers]);
+
+  const filteredHandovers = useMemo(() => {
+    if (reviewerFilter === 'all') return handovers;
+    if (reviewerFilter === 'mine') {
+      return handovers.filter(handover =>
+        handover.reviewedBy === user.name || handover.reviewHistory?.some(entry => entry.reviewer === user.name)
+      );
+    }
+
+    return handovers.filter(handover =>
+      handover.reviewedBy === reviewerFilter || handover.reviewHistory?.some(entry => entry.reviewer === reviewerFilter)
+    );
+  }, [handovers, reviewerFilter, user.name]);
 
   return (
     <div className="max-w-5xl mx-auto space-y-12 pb-32">
@@ -470,7 +532,22 @@ export default function HandoverFlow({ handovers, tasks, stats, aiInteractions }
             <History className="w-6 h-6 text-muted" />
             <h3 className="relaxed-title text-2xl">Shift Transfer Audit</h3>
           </div>
-          <span className="text-[9px] font-black uppercase tracking-widest text-muted/40">Chronological sync log</span>
+          <div className="flex items-center gap-3">
+            <label className="text-[9px] font-black uppercase tracking-widest text-muted/50">
+              Reviewer
+            </label>
+            <select
+              value={reviewerFilter}
+              onChange={(e) => setReviewerFilter(e.target.value)}
+              className="rounded-xl border border-dawn bg-white px-3 py-2 text-[10px] font-black uppercase tracking-widest text-muted focus:outline-none focus:ring-2 focus:ring-citrus/20"
+            >
+              <option value="all">All reviews</option>
+              <option value="mine">Reviewed by me</option>
+              {availableReviewers.map(reviewer => (
+                <option key={reviewer} value={reviewer}>{reviewer}</option>
+              ))}
+            </select>
+          </div>
         </div>
 
         <div className="glass-card p-0 overflow-hidden border-dawn shadow-lg">
@@ -485,7 +562,7 @@ export default function HandoverFlow({ handovers, tasks, stats, aiInteractions }
               </tr>
             </thead>
             <tbody className="divide-y divide-dawn">
-              {handovers.map(ho => (
+              {filteredHandovers.map(ho => (
                 <tr key={ho.id} className="group hover:bg-stone/30 transition-colors">
                   <td className="px-8 py-6">
                     <div className="flex flex-col">
@@ -518,7 +595,15 @@ export default function HandoverFlow({ handovers, tasks, stats, aiInteractions }
                     </div>
                   </td>
                   <td className="px-8 py-6 text-right">
-                    <div className="flex items-center justify-end gap-2">
+                    <div className="flex items-center justify-end gap-2 flex-wrap">
+                      {ho.reviewHistory?.some(entry => entry.reviewer === user.name) && (
+                        <span className="px-3 py-2 rounded-lg bg-ink/5 text-ink text-[9px] font-black uppercase tracking-widest border border-dawn">
+                          Reviewed by me
+                        </span>
+                      )}
+                      <button onClick={() => openReviewModal(ho)} className="px-4 py-2 bg-ink text-white rounded-lg text-[9px] font-black uppercase tracking-widest hover:scale-105 transition-all shadow-lg shadow-ink/10">
+                        Review
+                      </button>
                       <button onClick={() => editHandover(ho)} disabled={!canUseFeature('handover.edit')} className="px-4 py-2 bg-white border border-dawn text-muted rounded-lg text-[9px] font-black uppercase tracking-widest hover:text-citrus transition-all disabled:opacity-40">Edit</button>
                       {ho.status === 'Pending' ? (
                         <button onClick={() => acknowledgeHandover(ho.id)} disabled={!canUseFeature('handover.ack')} className="px-5 py-2 bg-citrus text-ink rounded-lg text-[9px] font-black uppercase tracking-widest hover:scale-105 transition-all shadow-lg shadow-citrus/10 disabled:opacity-40 disabled:hover:scale-100">Acknowledge</button>
@@ -532,10 +617,12 @@ export default function HandoverFlow({ handovers, tasks, stats, aiInteractions }
                   </td>
                 </tr>
               ))}
-              {handovers.length === 0 && (
+              {filteredHandovers.length === 0 && (
                 <tr>
                   <td colSpan={5} className="px-8 py-16 text-center">
-                    <span className="text-[10px] font-black uppercase tracking-widest text-muted opacity-30 italic">No historical records in current cycle</span>
+                    <span className="text-[10px] font-black uppercase tracking-widest text-muted opacity-30 italic">
+                      {reviewerFilter === 'all' ? 'No historical records in current cycle' : 'No handovers match this reviewer filter'}
+                    </span>
                   </td>
                 </tr>
               )}
@@ -544,6 +631,217 @@ export default function HandoverFlow({ handovers, tasks, stats, aiInteractions }
         </div>
       </section>
       )}
+
+      <AnimatePresence>
+        {reviewingHandover && (
+          <motion.div
+            initial={{ opacity: 0 }}
+            animate={{ opacity: 1 }}
+            exit={{ opacity: 0 }}
+            className="fixed inset-0 z-[120] flex items-center justify-center p-4"
+          >
+            <div className="absolute inset-0 bg-ink/40 backdrop-blur-sm" onClick={() => setReviewingHandoverId(null)} />
+            <motion.div
+              initial={{ opacity: 0, y: 16, scale: 0.96 }}
+              animate={{ opacity: 1, y: 0, scale: 1 }}
+              exit={{ opacity: 0, y: 16, scale: 0.96 }}
+              className="relative w-full max-w-4xl max-h-[88vh] overflow-hidden rounded-[32px] border border-dawn bg-white shadow-2xl"
+            >
+              <div className="flex items-center justify-between px-8 py-6 border-b border-dawn">
+                <div>
+                  <h3 className="relaxed-title text-2xl">Handover Review</h3>
+                  <p className="text-[10px] font-black uppercase tracking-[0.2em] text-muted mt-2">
+                    {reviewingHandover.fromShift} to {reviewingHandover.toShift} · {reviewingHandover.team || 'All Teams'} · {reviewingHandover.country || user.country}
+                  </p>
+                </div>
+                <button onClick={() => setReviewingHandoverId(null)} className="px-4 py-2 bg-stone border border-dawn rounded-xl text-[10px] font-black uppercase tracking-widest text-muted hover:text-ink transition-all">
+                  Close
+                </button>
+              </div>
+
+              <div className="p-8 overflow-y-auto max-h-[calc(88vh-96px)] custom-scrollbar space-y-8">
+                <div className="grid grid-cols-2 gap-6">
+                  <div className="p-6 bg-stone/30 rounded-3xl border border-dawn space-y-4">
+                    <span className="text-[10px] font-black uppercase tracking-[0.2em] text-citrus block">Transfer Context</span>
+                    <div className="grid grid-cols-2 gap-4 text-sm font-bold text-ink">
+                      <div>
+                        <p className="text-[9px] font-black uppercase tracking-widest text-muted mb-1">Outgoing</p>
+                        <p>{reviewingHandover.outgoing}</p>
+                      </div>
+                      <div>
+                        <p className="text-[9px] font-black uppercase tracking-widest text-muted mb-1">Incoming</p>
+                        <p>{reviewingHandover.incoming}</p>
+                      </div>
+                      <div>
+                        <p className="text-[9px] font-black uppercase tracking-widest text-muted mb-1">From Hub</p>
+                        <p>{reviewingHandover.fromOffice}</p>
+                      </div>
+                      <div>
+                        <p className="text-[9px] font-black uppercase tracking-widest text-muted mb-1">To Hub</p>
+                        <p>{reviewingHandover.toOffice}</p>
+                      </div>
+                    </div>
+                  </div>
+
+                  <div className="p-6 bg-ink text-white rounded-3xl space-y-4">
+                    <span className="text-[10px] font-black uppercase tracking-[0.2em] text-citrus/80 block">Review Status</span>
+                    <div className="flex items-center justify-between">
+                      <span className="text-sm font-bold text-white/70">Current State</span>
+                      <span className={`px-3 py-1 rounded-lg text-[9px] font-black uppercase tracking-widest ${reviewingHandover.status === 'Pending' ? 'bg-citrus text-ink' : 'bg-green-500 text-white'}`}>
+                        {reviewingHandover.status}
+                      </span>
+                    </div>
+                    <div className="space-y-2 text-sm font-bold text-white/80">
+                      <p>Created: {new Date(reviewingHandover.createdAt).toLocaleString()}</p>
+                      <p>Tasks linked: {reviewingTasks.length}</p>
+                      {reviewingHandover.reviewedBy && <p>Last reviewed by: {reviewingHandover.reviewedBy}</p>}
+                      {reviewingHandover.reviewedAt && <p>Reviewed at: {new Date(reviewingHandover.reviewedAt).toLocaleString()}</p>}
+                      {reviewingHandover.ackAt && <p>Acknowledged: {new Date(reviewingHandover.ackAt).toLocaleString()}</p>}
+                    </div>
+                  </div>
+                </div>
+
+                <div className="space-y-4">
+                  <div className="flex items-center justify-between">
+                    <h4 className="relaxed-title text-xl">Watchouts and Notes</h4>
+                    <span className="text-[10px] font-black uppercase tracking-[0.2em] text-muted">Review before accept</span>
+                  </div>
+                  <div className="p-6 bg-stone/20 border border-dawn rounded-3xl text-sm font-medium text-muted leading-relaxed whitespace-pre-wrap min-h-[140px]">
+                    {reviewingHandover.watchouts || 'No watchouts were recorded for this handover.'}
+                  </div>
+                </div>
+
+                <div className="space-y-4">
+                  <div className="flex items-center justify-between">
+                    <h4 className="relaxed-title text-xl">Reviewer Notes</h4>
+                    <span className="text-[10px] font-black uppercase tracking-[0.2em] text-muted">Saved to audit trail</span>
+                  </div>
+                  <textarea
+                    value={reviewComment}
+                    onChange={(e) => setReviewComment(e.target.value)}
+                    placeholder="Add review notes, decisions, blockers, or follow-ups"
+                    className="w-full min-h-[140px] rounded-3xl border border-dawn bg-white px-5 py-4 text-sm font-medium text-ink placeholder:text-muted/40 focus:outline-none focus:ring-2 focus:ring-citrus/20"
+                  />
+                </div>
+
+                <div className="space-y-4">
+                  <div className="flex items-center justify-between">
+                    <h4 className="relaxed-title text-xl">Linked Tasks</h4>
+                    <span className="text-[10px] font-black uppercase tracking-[0.2em] text-muted">{reviewingTasks.length} items</span>
+                  </div>
+                  <div className="space-y-3">
+                    {reviewingTasks.map(task => (
+                      <div key={task.id} className="p-5 bg-white border border-dawn rounded-2xl flex items-start justify-between gap-4">
+                        <div className="min-w-0">
+                          <p className="text-sm font-bold text-ink">{task.title}</p>
+                          <div className="flex items-center gap-2 mt-2 text-[10px] font-black uppercase tracking-widest text-muted">
+                            <span>{task.team}</span>
+                            <span className="text-muted/30">·</span>
+                            <span>{task.office}</span>
+                            <span className="text-muted/30">·</span>
+                            <span>{task.owner}</span>
+                          </div>
+                        </div>
+                        <div className="text-right shrink-0">
+                          <span className={`inline-block px-2 py-1 rounded-lg text-[9px] font-black uppercase tracking-widest ${
+                            task.status === Status.BLOCKED ? 'bg-red-50 text-red-500' :
+                            task.status === Status.DONE ? 'bg-green-50 text-green-600' :
+                            'bg-stone text-muted'
+                          }`}>
+                            {task.status}
+                          </span>
+                          <p className="text-[10px] font-bold text-muted mt-2">{task.priority}</p>
+                        </div>
+                      </div>
+                    ))}
+                    {reviewingTasks.length === 0 && (
+                      <div className="p-8 bg-stone/20 border border-dawn rounded-2xl text-center">
+                        <span className="text-[10px] font-black uppercase tracking-widest text-muted/40 italic">No linked tasks found</span>
+                      </div>
+                    )}
+                  </div>
+                </div>
+
+                <div className="space-y-4">
+                  <div className="flex items-center justify-between">
+                    <h4 className="relaxed-title text-xl">Review History</h4>
+                    <span className="text-[10px] font-black uppercase tracking-[0.2em] text-muted">
+                      {(reviewingHandover.reviewHistory || []).length} entries
+                    </span>
+                  </div>
+                  <div className="space-y-3">
+                    {(reviewingHandover.reviewHistory || []).length > 0 ? (
+                      reviewingHandover.reviewHistory?.slice().reverse().map(entry => (
+                        <div key={entry.id} className="rounded-3xl border border-dawn bg-stone/20 p-5">
+                          <div className="flex items-center justify-between gap-4">
+                            <div>
+                              <p className="text-sm font-bold text-ink">{entry.reviewer}</p>
+                              <p className="text-[10px] font-black uppercase tracking-widest text-muted mt-1">
+                                {entry.action} · {new Date(entry.reviewedAt).toLocaleString()}
+                              </p>
+                            </div>
+                            <span className={`px-3 py-1 rounded-lg text-[9px] font-black uppercase tracking-widest ${
+                              entry.action === 'Acknowledged' ? 'bg-green-50 text-green-600' : 'bg-citrus/10 text-citrus'
+                            }`}>
+                              {entry.action}
+                            </span>
+                          </div>
+                          <p className="mt-4 text-sm font-medium leading-relaxed text-muted whitespace-pre-wrap">
+                            {entry.comment || 'No comment recorded for this review.'}
+                          </p>
+                        </div>
+                      ))
+                    ) : (
+                      <div className="p-8 bg-stone/20 border border-dawn rounded-2xl text-center">
+                        <span className="text-[10px] font-black uppercase tracking-widest text-muted/40 italic">No review entries yet</span>
+                      </div>
+                    )}
+                  </div>
+                </div>
+
+                <div className="flex items-center justify-between pt-4 border-t border-dawn">
+                  <div className="text-[10px] font-bold text-muted">
+                    Review notes, reviewer identity, and timestamps are now saved into the handover trail.
+                  </div>
+                  <div className="flex items-center gap-3">
+                    <button
+                      onClick={() => {
+                        setReviewingHandoverId(null);
+                        editHandover(reviewingHandover);
+                      }}
+                      disabled={!canUseFeature('handover.edit')}
+                      className="px-5 py-3 bg-white border border-dawn rounded-xl text-[10px] font-black uppercase tracking-widest text-muted hover:text-citrus transition-all disabled:opacity-40"
+                    >
+                      Edit Handover
+                    </button>
+                    <button
+                      onClick={async () => {
+                        await reviewHandover(reviewingHandover, 'Reviewed');
+                        setReviewingHandoverId(null);
+                      }}
+                      className="px-6 py-3 bg-ink text-white rounded-xl text-[10px] font-black uppercase tracking-widest hover:scale-105 transition-all shadow-lg shadow-ink/10"
+                    >
+                      Save Review
+                    </button>
+                    {reviewingHandover.status === 'Pending' && (
+                      <button
+                        onClick={async () => {
+                          await reviewHandover(reviewingHandover, 'Acknowledged');
+                          setReviewingHandoverId(null);
+                        }}
+                        disabled={!canUseFeature('handover.ack')}
+                        className="px-6 py-3 bg-citrus text-ink rounded-xl text-[10px] font-black uppercase tracking-widest hover:scale-105 transition-all shadow-lg shadow-citrus/10 disabled:opacity-40 disabled:hover:scale-100"
+                      >
+                        Review and Acknowledge
+                      </button>
+                    )}
+                  </div>
+                </div>
+              </div>
+            </motion.div>
+          </motion.div>
+        )}
+      </AnimatePresence>
     </div>
   );
 }

@@ -111,7 +111,7 @@ export function LocalDataProvider({ children }: { children: React.ReactNode }) {
     scopedHandovers,
     scopedMembers,
     scopedOffices,
-    canAccessPage: page => isSuperAdmin || permissionProfile.pages.includes(page),
+    canAccessPage: page => page === 'settings' || isSuperAdmin || permissionProfile.pages.includes(page),
     canUseFeature: feature => isSuperAdmin || permissionProfile.features.includes(feature),
     isWidgetEnabled: widget => workspace.settings.widgetConfig?.[widget] !== false,
     addTask: async task => commit(current => appendAudit({

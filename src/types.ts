@@ -61,7 +61,19 @@ export interface Handover {
   taskIds: string[];
   createdAt: string;
   ackAt?: string;
+  reviewedBy?: string;
+  reviewedAt?: string;
+  reviewComment?: string;
+  reviewHistory?: HandoverReviewEntry[];
   creatorId: string;
+}
+
+export interface HandoverReviewEntry {
+  id: string;
+  reviewer: string;
+  reviewedAt: string;
+  comment: string;
+  action: 'Reviewed' | 'Acknowledged';
 }
 
 export interface Office {
