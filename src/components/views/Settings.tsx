@@ -44,6 +44,7 @@ const settingTabs = [
   { id: 'appearance', icon: Palette, label: 'Appearance' },
   { id: 'ai', icon: Bot, label: 'AI & API' },
   { id: 'security', icon: Shield, label: 'Auth & Users' },
+  { id: 'users', icon: Users, label: 'User Management' },
   { id: 'operations', icon: Sliders, label: 'Ops Engine' },
   { id: 'teams', icon: Users, label: 'Team Roles' },
   { id: 'data', icon: Database, label: 'Data & Audit' },
@@ -72,8 +73,19 @@ function isAdminUser(role: string): boolean {
   return r.includes('lead') || r.includes('admin') || r.includes('manager') || r.includes('operations');
 }
 
+const PRESET_ROLES = [
+  'Operations Lead',
+  'Community Lead',
+  'Shift Lead',
+  'Creator Coverage Lead',
+  'Regional Manager',
+  'Admin',
+  'Analyst',
+  'Support Agent',
+];
+
 export default function Settings({ activeTab: controlledTab, setActiveTab: setControlledTab }: SettingsProps) {
-  const { user, settings, members, tasks, handovers, auditLogs, updateSettings, updateUser, exportWorkspace, resetData } = useLocalData();
+  const { user, settings, members, tasks, handovers, auditLogs, updateSettings, updateUser, addMember, updateMember, deleteMember, exportWorkspace, resetData } = useLocalData();
   const [internalTab, setInternalTab] = useState(controlledTab || 'general');
   const activeTab = controlledTab || internalTab;
   const setActiveTab = setControlledTab || setInternalTab;
@@ -86,6 +98,15 @@ export default function Settings({ activeTab: controlledTab, setActiveTab: setCo
   const [profile, setProfile] = useState(user);
   const [newTeam, setNewTeam] = useState('');
   const isAdmin = isAdminUser(user.role);
+
+  // ── User Management state ─────────────────────────────────────────────────
+  const emptyMember = { name: '', role: PRESET_ROLES[0], team: settings.teams?.[0] || 'Operations Team', office: user.office, country: user.country };
+  const [showAddMember, setShowAddMember] = useState(false);
+  const [newMemberForm, setNewMemberForm] = useState(emptyMember);
+  const [editingMemberId, setEditingMemberId] = useState<string | null>(null);
+  const [editForm, setEditForm] = useState<Partial<typeof members[0]>>({});
+  const [memberSearch, setMemberSearch] = useState('');
+  const [deleteConfirmId, setDeleteConfirmId] = useState<string | null>(null);
 
   // AI tab state
   const [apiKeys, setApiKeys] = useState<Record<string, string>>(loadApiKeys);
@@ -677,29 +698,285 @@ export default function Settings({ activeTab: controlledTab, setActiveTab: setCo
             </Panel>
           )}
 
-          {/* ── Security ── */}
+          {/* ── Security / Auth ── */}
           {activeTab === 'security' && (
-            <Panel title="Authentication & Users" desc="Local configuration without blocking the app behind login.">
+            <Panel title="Authentication" desc="Session and access control settings for this local workspace.">
               <div className="grid grid-cols-3 gap-5">
                 <Field label="Auth Mode">
                   <select className={inputClass} value={config.authMode || 'none'} onChange={e => setConfig({ ...configRef.current, authMode: e.target.value as any })}>
-                    <option value="none">No Login</option>
+                    <option value="none">No Login Required</option>
                     <option value="local">Local Passcode</option>
                   </select>
                 </Field>
                 <Field label="Min Passcode Length"><input type="number" className={inputClass} value={config.minPasscodeLength || 6} onChange={e => setConfig({ ...configRef.current, minPasscodeLength: Number(e.target.value) })} /></Field>
-                <Field label="Session Lock Minutes"><input type="number" className={inputClass} value={config.sessionLockMinutes || 60} onChange={e => setConfig({ ...configRef.current, sessionLockMinutes: Number(e.target.value) })} /></Field>
+                <Field label="Session Lock (minutes)"><input type="number" className={inputClass} value={config.sessionLockMinutes || 60} onChange={e => setConfig({ ...configRef.current, sessionLockMinutes: Number(e.target.value) })} /></Field>
               </div>
-              <div className="mt-8 grid grid-cols-2 gap-4">
-                {[user].map(u => (
-                  <div key={u.email} className="flex items-center justify-between p-5 bg-stone/30 border border-dawn rounded-2xl">
-                    <div className="flex items-center gap-3">
-                      <div className="w-10 h-10 rounded-xl bg-white border border-dawn flex items-center justify-center text-xs font-black text-muted">{u.name.split(' ').map(n => n[0]).join('')}</div>
-                      <div><b className="block text-sm">{u.name}</b><span className="text-[10px] font-bold uppercase tracking-widest text-muted">{u.role} · Local Admin</span></div>
+              <div className="mt-8 p-6 bg-stone/30 border border-dawn rounded-3xl space-y-3">
+                <div className="flex items-center gap-2 text-muted mb-2">
+                  <Shield className="w-4 h-4" />
+                  <span className="text-[10px] font-black uppercase tracking-[0.2em]">Active Session</span>
+                </div>
+                <div className="flex items-center justify-between p-5 bg-white border border-dawn rounded-2xl">
+                  <div className="flex items-center gap-3">
+                    <div className="w-10 h-10 rounded-xl bg-ink text-white flex items-center justify-center text-xs font-black">{user.name.split(' ').map(n => n[0]).join('').slice(0, 2)}</div>
+                    <div>
+                      <b className="block text-sm text-ink">{user.name}</b>
+                      <span className="text-[10px] font-bold uppercase tracking-widest text-muted">{user.role}</span>
                     </div>
+                  </div>
+                  <div className="flex items-center gap-2">
+                    {isAdmin && <span className="px-2 py-1 bg-citrus/10 text-citrus rounded-lg text-[9px] font-black uppercase tracking-widest">Admin</span>}
                     <span className="px-2 py-1 bg-green-50 text-green-600 rounded-lg text-[9px] font-black uppercase tracking-widest">Active</span>
                   </div>
-                ))}
+                </div>
+                <p className="text-[10px] font-bold text-muted/60 pt-1">
+                  To manage team members and assign roles, go to <button className="text-citrus underline" onClick={() => setActiveTab('users')}>User Management</button>.
+                </p>
+              </div>
+            </Panel>
+          )}
+
+          {/* ── User Management ── */}
+          {activeTab === 'users' && (
+            <Panel title="User Management" desc="Create team members, assign roles, update profiles, and switch active users.">
+              <div className="space-y-6">
+
+                {/* Search + Add */}
+                <div className="flex items-center gap-3">
+                  <div className="relative flex-1">
+                    <input
+                      value={memberSearch}
+                      onChange={e => setMemberSearch(e.target.value)}
+                      placeholder="Search by name, role, office…"
+                      className="w-full bg-stone/50 border border-dawn rounded-xl px-4 py-3 text-sm font-bold focus:border-citrus outline-none"
+                    />
+                    {memberSearch && (
+                      <button onClick={() => setMemberSearch('')} className="absolute right-3 top-1/2 -translate-y-1/2 text-muted hover:text-ink">
+                        <X className="w-4 h-4" />
+                      </button>
+                    )}
+                  </div>
+                  <button
+                    onClick={() => { setShowAddMember(v => !v); setNewMemberForm(emptyMember); }}
+                    className="flex items-center gap-2 px-5 py-3 bg-ink text-white rounded-xl text-xs font-black uppercase tracking-widest hover:scale-[1.02] transition-all"
+                  >
+                    <Plus className="w-3.5 h-3.5" />
+                    New User
+                  </button>
+                </div>
+
+                {/* Add member form */}
+                {showAddMember && (
+                  <div className="p-6 bg-citrus/5 border-2 border-citrus/20 rounded-3xl space-y-5">
+                    <div className="flex items-center gap-2 text-citrus mb-1">
+                      <Plus className="w-4 h-4" />
+                      <span className="text-[10px] font-black uppercase tracking-widest">Add New User</span>
+                    </div>
+                    <div className="grid grid-cols-2 gap-4">
+                      <Field label="Full Name">
+                        <input className={inputClass} value={newMemberForm.name} onChange={e => setNewMemberForm(f => ({ ...f, name: e.target.value }))} placeholder="e.g. Sara Ahmed" />
+                      </Field>
+                      <Field label="Role">
+                        <div className="flex gap-2">
+                          <select
+                            className={inputClass}
+                            value={PRESET_ROLES.includes(newMemberForm.role) ? newMemberForm.role : '__custom__'}
+                            onChange={e => {
+                              if (e.target.value !== '__custom__') setNewMemberForm(f => ({ ...f, role: e.target.value }));
+                            }}
+                          >
+                            {PRESET_ROLES.map(r => <option key={r} value={r}>{r}</option>)}
+                            <option value="__custom__">Custom…</option>
+                          </select>
+                        </div>
+                        {(!PRESET_ROLES.includes(newMemberForm.role) || newMemberForm.role === '') && (
+                          <input className={`${inputClass} mt-2`} value={newMemberForm.role} onChange={e => setNewMemberForm(f => ({ ...f, role: e.target.value }))} placeholder="Custom role…" />
+                        )}
+                      </Field>
+                      <Field label="Team">
+                        <select className={inputClass} value={newMemberForm.team} onChange={e => setNewMemberForm(f => ({ ...f, team: e.target.value }))}>
+                          {(settings.teams || []).map(t => <option key={t} value={t}>{t}</option>)}
+                        </select>
+                      </Field>
+                      <Field label="Office">
+                        <input className={inputClass} value={newMemberForm.office} onChange={e => setNewMemberForm(f => ({ ...f, office: e.target.value }))} placeholder="e.g. Cairo HQ" />
+                      </Field>
+                      <Field label="Country Code">
+                        <input className={inputClass} value={newMemberForm.country} onChange={e => setNewMemberForm(f => ({ ...f, country: e.target.value }))} placeholder="EG / KSA / UAE…" maxLength={4} />
+                      </Field>
+                    </div>
+                    <div className="flex gap-3">
+                      <button
+                        onClick={async () => {
+                          if (!newMemberForm.name.trim()) return;
+                          await addMember(newMemberForm);
+                          setShowAddMember(false);
+                          setNewMemberForm(emptyMember);
+                        }}
+                        className="px-6 py-2.5 bg-citrus text-ink rounded-xl text-xs font-black uppercase tracking-widest hover:scale-[1.02] transition-all"
+                      >
+                        Create User
+                      </button>
+                      <button onClick={() => setShowAddMember(false)} className="px-6 py-2.5 bg-stone border border-dawn text-muted rounded-xl text-xs font-black uppercase tracking-widest">
+                        Cancel
+                      </button>
+                    </div>
+                  </div>
+                )}
+
+                {/* Member list */}
+                <div className="space-y-2">
+                  {members
+                    .filter(m => !memberSearch || [m.name, m.role, m.office, m.team].join(' ').toLowerCase().includes(memberSearch.toLowerCase()))
+                    .map(m => {
+                      const isCurrentUser = m.name === user.name;
+                      const isEditing = editingMemberId === m.id;
+                      const mTasks = tasks.filter(t => t.owner === m.name);
+                      const mDone = mTasks.filter(t => t.status === 'Done').length;
+
+                      return (
+                        <div
+                          key={m.id}
+                          className={`rounded-2xl border transition-all overflow-hidden ${
+                            isCurrentUser ? 'border-citrus bg-citrus/3' : isEditing ? 'border-ink/20 bg-stone/30' : 'border-dawn bg-white'
+                          }`}
+                        >
+                          {/* Row header */}
+                          <div className="flex items-center gap-4 p-4">
+                            <div className={`w-10 h-10 rounded-xl flex items-center justify-center text-sm font-black shrink-0 ${
+                              isCurrentUser ? 'bg-ink text-white' : 'bg-stone border border-dawn text-muted'
+                            }`}>
+                              {m.name.split(' ').map(n => n[0]).join('').slice(0, 2).toUpperCase()}
+                            </div>
+
+                            <div className="flex-1 min-w-0">
+                              <div className="flex items-center gap-2">
+                                <span className="font-black text-sm text-ink truncate">{m.name}</span>
+                                {isCurrentUser && <span className="text-[8px] font-black uppercase tracking-widest text-citrus">You</span>}
+                                {isAdminUser(m.role || '') && <span className="text-[8px] font-black uppercase tracking-widest px-1.5 py-0.5 bg-amber-50 text-amber-600 rounded">Admin</span>}
+                              </div>
+                              <div className="flex items-center gap-2 text-[9px] font-bold text-muted uppercase tracking-widest">
+                                <span>{m.role || 'No role'}</span>
+                                <span className="text-muted/30">·</span>
+                                <span>{m.team}</span>
+                                <span className="text-muted/30">·</span>
+                                <span>{m.office}</span>
+                              </div>
+                            </div>
+
+                            <div className="flex items-center gap-1.5 text-[9px] font-bold text-muted shrink-0 mr-2">
+                              <span className="px-2 py-1 bg-stone rounded-lg">{mDone} done</span>
+                            </div>
+
+                            <div className="flex items-center gap-1 shrink-0">
+                              {!isCurrentUser && (
+                                <button
+                                  onClick={() => { updateUser({ name: m.name, role: m.role || user.role, office: m.office, country: m.country, email: user.email }); }}
+                                  title="Switch to this user"
+                                  className="px-2.5 py-1.5 text-[9px] font-black uppercase tracking-widest bg-stone border border-dawn rounded-lg text-muted hover:text-citrus hover:border-citrus/40 transition-all"
+                                >
+                                  Switch
+                                </button>
+                              )}
+                              <button
+                                onClick={() => {
+                                  if (isEditing) { setEditingMemberId(null); }
+                                  else { setEditingMemberId(m.id); setEditForm({ name: m.name, role: m.role, team: m.team, office: m.office, country: m.country }); }
+                                }}
+                                className={`p-2 rounded-lg transition-all ${
+                                  isEditing ? 'bg-ink text-white' : 'text-muted hover:text-ink hover:bg-stone'
+                                }`}
+                                title="Edit"
+                              >
+                                <svg className="w-3.5 h-3.5" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2}><path strokeLinecap="round" strokeLinejoin="round" d="M11 5H6a2 2 0 00-2 2v11a2 2 0 002 2h11a2 2 0 002-2v-5m-1.414-9.414a2 2 0 112.828 2.828L11.828 15H9v-2.828l8.586-8.586z" /></svg>
+                              </button>
+                              {deleteConfirmId === m.id ? (
+                                <>
+                                  <button onClick={async () => { await deleteMember(m.id); setDeleteConfirmId(null); }} className="px-2 py-1.5 bg-red-500 text-white rounded-lg text-[9px] font-black uppercase">Confirm</button>
+                                  <button onClick={() => setDeleteConfirmId(null)} className="px-2 py-1.5 bg-stone border border-dawn rounded-lg text-[9px] font-black uppercase text-muted">No</button>
+                                </>
+                              ) : (
+                                <button
+                                  onClick={() => setDeleteConfirmId(m.id)}
+                                  disabled={isCurrentUser}
+                                  className="p-2 rounded-lg text-muted hover:text-red-500 hover:bg-red-50 transition-all disabled:opacity-30 disabled:cursor-not-allowed"
+                                  title="Delete"
+                                >
+                                  <Trash2 className="w-3.5 h-3.5" />
+                                </button>
+                              )}
+                            </div>
+                          </div>
+
+                          {/* Inline edit form */}
+                          {isEditing && (
+                            <div className="px-5 pb-5 border-t border-dawn/50 pt-4 space-y-4">
+                              <div className="grid grid-cols-2 gap-3">
+                                <Field label="Full Name">
+                                  <input className={inputClass} value={editForm.name || ''} onChange={e => setEditForm(f => ({ ...f, name: e.target.value }))} />
+                                </Field>
+                                <Field label="Role">
+                                  <select
+                                    className={inputClass}
+                                    value={PRESET_ROLES.includes(editForm.role || '') ? editForm.role || '' : '__custom__'}
+                                    onChange={e => { if (e.target.value !== '__custom__') setEditForm(f => ({ ...f, role: e.target.value })); }}
+                                  >
+                                    {PRESET_ROLES.map(r => <option key={r} value={r}>{r}</option>)}
+                                    <option value="__custom__">Custom…</option>
+                                  </select>
+                                  {!PRESET_ROLES.includes(editForm.role || '') && (
+                                    <input className={`${inputClass} mt-2`} value={editForm.role || ''} onChange={e => setEditForm(f => ({ ...f, role: e.target.value }))} placeholder="Custom role…" />
+                                  )}
+                                </Field>
+                                <Field label="Team">
+                                  <select className={inputClass} value={editForm.team || ''} onChange={e => setEditForm(f => ({ ...f, team: e.target.value }))}>
+                                    {(settings.teams || []).map(t => <option key={t} value={t}>{t}</option>)}
+                                    {editForm.team && !(settings.teams || []).includes(editForm.team) && <option value={editForm.team}>{editForm.team}</option>}
+                                  </select>
+                                </Field>
+                                <Field label="Office">
+                                  <input className={inputClass} value={editForm.office || ''} onChange={e => setEditForm(f => ({ ...f, office: e.target.value }))} />
+                                </Field>
+                                <Field label="Country">
+                                  <input className={inputClass} value={editForm.country || ''} onChange={e => setEditForm(f => ({ ...f, country: e.target.value }))} maxLength={4} />
+                                </Field>
+                              </div>
+                              <div className="flex gap-3">
+                                <button
+                                  onClick={async () => {
+                                    await updateMember(m.id, editForm);
+                                    // If editing yourself, also update active user profile
+                                    if (isCurrentUser && editForm.name && editForm.role) {
+                                      await updateUser({ name: editForm.name, role: editForm.role, office: editForm.office || user.office, country: editForm.country || user.country });
+                                    }
+                                    setEditingMemberId(null);
+                                  }}
+                                  className="px-5 py-2 bg-ink text-white rounded-xl text-xs font-black uppercase tracking-widest hover:scale-[1.02] transition-all"
+                                >
+                                  Save Changes
+                                </button>
+                                <button onClick={() => setEditingMemberId(null)} className="px-5 py-2 bg-stone border border-dawn rounded-xl text-xs font-black uppercase tracking-widest text-muted">
+                                  Cancel
+                                </button>
+                              </div>
+                            </div>
+                          )}
+                        </div>
+                      );
+                    })}
+                  {members.filter(m => !memberSearch || [m.name, m.role, m.office, m.team].join(' ').toLowerCase().includes(memberSearch.toLowerCase())).length === 0 && (
+                    <div className="py-16 text-center text-muted/40">
+                      <Users className="w-8 h-8 mx-auto mb-3 opacity-40" />
+                      <p className="text-sm font-black">No users match your search.</p>
+                    </div>
+                  )}
+                </div>
+
+                {/* Summary bar */}
+                <div className="flex items-center justify-between p-4 bg-stone/40 rounded-2xl border border-dawn text-[10px] font-bold text-muted">
+                  <span>{members.length} total users · {members.filter(m => isAdminUser(m.role || '')).length} admins</span>
+                  <span>Active: <b className="text-ink">{user.name}</b></span>
+                </div>
               </div>
             </Panel>
           )}
